@@ -150,9 +150,9 @@ export function summaryQuery(tableName: string): string {
   const table = quoteIdent(tableName);
   return (
     `SELECT count(*)::DOUBLE AS feature_count, ` +
-    `ST_XMin(ext) AS xmin, ST_YMin(ext) AS ymin, ` +
-    `ST_XMax(ext) AS xmax, ST_YMax(ext) AS ymax ` +
-    `FROM (SELECT ST_Extent_Agg(geom) AS ext FROM ${table} WHERE geom IS NOT NULL)`
+    `ST_XMin(ST_Extent_Agg(geom)) AS xmin, ST_YMin(ST_Extent_Agg(geom)) AS ymin, ` +
+    `ST_XMax(ST_Extent_Agg(geom)) AS xmax, ST_YMax(ST_Extent_Agg(geom)) AS ymax ` +
+    `FROM ${table} WHERE geom IS NOT NULL`
   );
 }
 

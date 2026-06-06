@@ -1,0 +1,49 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Lake Tahoe (approx.)", "kind": "polygon" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-120.16, 39.06],
+            [-120.16, 39.24],
+            [-119.93, 39.24],
+            [-119.93, 39.06],
+            [-120.16, 39.06]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Truckee River (schematic)", "kind": "line" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-120.04, 39.17],
+          [-119.95, 39.31],
+          [-119.78, 39.45],
+          [-119.65, 39.52]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "South Lake Tahoe", "kind": "point" },
+      "geometry": { "type": "Point", "coordinates": [-119.98, 38.94] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Tahoe City", "kind": "point" },
+      "geometry": { "type": "Point", "coordinates": [-120.14, 39.17] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "Reno", "kind": "point" },
+      "geometry": { "type": "Point", "coordinates": [-119.81, 39.53] }
+    }
+  ]
+}

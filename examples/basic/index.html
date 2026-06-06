@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MapLibre GL Vector - Basic Example</title>
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <style>
     body {
       margin: 0;
@@ -15,10 +14,49 @@
       width: 100vw;
       height: 100vh;
     }
+    .sample-bar {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1;
+      display: flex;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 8px 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .sample-bar span {
+      font-size: 12px;
+      font-weight: 600;
+      color: #475467;
+    }
+    .sample-bar button {
+      padding: 6px 12px;
+      font-size: 12px;
+      border: none;
+      border-radius: 6px;
+      background: #4a90d9;
+      color: white;
+      cursor: pointer;
+    }
+    .sample-bar button:hover { background: #3a7bc8; }
+    .sample-bar button:disabled { background: #aaa; cursor: wait; }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div class="sample-bar">
+    <span>Load samples:</span>
+    <button id="load-geoparquet">GeoParquet</button>
+    <button id="load-geopackage">GeoPackage</button>
+    <button id="load-csv">CSV</button>
+    <button id="load-tiles">Tiles mode</button>
+  </div>
   <script type="module" src="./main.ts"></script>
 </body>
 </html>

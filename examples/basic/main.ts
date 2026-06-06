@@ -3,12 +3,21 @@ import { VectorControl } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+// Sample datasets (CORS-friendly GitHub release assets)
+const SAMPLES = {
+  geojson: new URL('../data/sample.geojson', import.meta.url).href,
+  geoparquet: 'https://raw.githubusercontent.com/opengeos/data/main/duckdb/countries.parquet',
+  geopackage: 'https://raw.githubusercontent.com/opengeos/data/main/us/us_regions.gpkg',
+  csv: 'https://raw.githubusercontent.com/opengeos/data/main/world/world_cities.csv',
+  counties: 'https://raw.githubusercontent.com/opengeos/data/main/us/us_counties.parquet',
+};
+
 // Create map
 const map = new maplibregl.Map({
   container: 'map',
   style: 'https://demotiles.maplibre.org/style.json',
-  center: [0, 0],
-  zoom: 2,
+  center: [-98, 39],
+  zoom: 3,
 });
 
 // Add navigation controls to top-right
@@ -17,34 +26,55 @@ map.addControl(new maplibregl.NavigationControl(), 'top-right');
 // Add fullscreen control to top-right (after navigation)
 map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 
-// Add plugin control when map loads
+// Add the vector control when the map loads
 map.on('load', () => {
-  // Create the plugin control with custom options
-  // Set collapsed: true to start with just the 29x29 button (like navigation control)
-  const pluginControl = new VectorControl({
-    title: 'My Plugin',
+  const vectorControl = new VectorControl({
+    title: 'Vector Data',
     collapsed: false,
-    panelWidth: 300,
+    panelWidth: 320,
   });
 
-  // Add control to the map
-  map.addControl(pluginControl, 'top-right');
+  map.addControl(vectorControl, 'top-right');
 
-  // Add Globe control to the map
-  map.addControl(new maplibregl.GlobeControl(), 'top-right');
-
-  // Listen for state changes
-  pluginControl.on('statechange', (event) => {
-    console.log('Plugin state changed:', event.state);
+  // Listen for layer events
+  vectorControl.on('layeradded', (event) => {
+    console.log('Layer added:', event.layer);
   });
 
-  pluginControl.on('collapse', () => {
-    console.log('Plugin panel collapsed');
+  vectorControl.on('layerremoved', (event) => {
+    console.log('Layer removed:', event.layer?.name);
   });
 
-  pluginControl.on('expand', () => {
-    console.log('Plugin panel expanded');
+  vectorControl.on('error', (event) => {
+    console.error('Vector control error:', event.error);
   });
 
-  console.log('Plugin control added to map');
+  // Load the local GeoJSON sample programmatically
+  void vectorControl
+    .addData(SAMPLES.geojson, { name: 'Tahoe sample' })
+    .catch((err) => console.error(err));
+
+  // Wire the sample buttons
+  const buttons: Array<[string, () => Promise<unknown>]> = [
+    ['load-geoparquet', () => vectorControl.addData(SAMPLES.geoparquet, { name: 'Countries' })],
+    ['load-geopackage', () => vectorControl.addData(SAMPLES.geopackage, { name: 'US regions' })],
+    ['load-csv', () => vectorControl.addData(SAMPLES.csv, { name: 'World cities' })],
+    [
+      'load-tiles',
+      () =>
+        vectorControl.addData(SAMPLES.counties, {
+          name: 'US counties (tiles)',
+          renderMode: 'tiles',
+        }),
+    ],
+  ];
+  for (const [id, load] of buttons) {
+    const button = document.getElementById(id);
+    button?.addEventListener('click', () => {
+      button.setAttribute('disabled', 'true');
+      void load()
+        .catch((err) => console.error(err))
+        .finally(() => button.removeAttribute('disabled'));
+    });
+  }
 });

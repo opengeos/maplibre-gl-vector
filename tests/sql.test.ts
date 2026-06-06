@@ -96,7 +96,7 @@ describe('summaryQuery', () => {
   it('computes count and extent', () => {
     const sql = summaryQuery('t1');
     expect(sql).toContain('count(*)');
-    expect(sql).toContain('ST_Extent_Agg(geom)');
+    expect(sql).toContain('ST_XMin(ST_Extent_Agg(geom))');
     expect(sql).toContain('ST_XMin');
   });
 });
