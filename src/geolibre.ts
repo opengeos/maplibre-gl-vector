@@ -38,7 +38,7 @@ let pendingState: Partial<VectorState> | null = null;
 function createControl(): VectorControl {
   const nextControl = new VectorControl({
     collapsed: pendingState?.collapsed ?? true,
-    panelWidth: pendingState?.panelWidth ?? 300,
+    panelWidth: pendingState?.panelWidth ?? 320,
     title: "MapLibre GL Vector",
   });
 

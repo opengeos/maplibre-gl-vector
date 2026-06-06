@@ -6,7 +6,8 @@ import type { VectorState } from '../core/types';
  */
 const DEFAULT_STATE: VectorState = {
   collapsed: true,
-  panelWidth: 300,
+  panelWidth: 320,
+  layers: [],
   data: {},
 };
 

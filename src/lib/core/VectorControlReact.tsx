@@ -1,6 +1,18 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { VectorControl } from "./VectorControl";
 import type { VectorControlReactProps } from "./types";
+
+/**
+ * Props for the React wrapper, extending the control props with an
+ * optional ref exposing the underlying VectorControl instance.
+ */
+export interface VectorControlReactComponentProps extends VectorControlReactProps {
+  /**
+   * Ref receiving the VectorControl instance for programmatic use
+   * (e.g. `controlRef.current?.addData(url)`)
+   */
+  controlRef?: Ref<VectorControl | null>;
+}
 
 /**
  * React wrapper component for VectorControl.
@@ -14,6 +26,7 @@ import type { VectorControlReactProps } from "./types";
  *
  * function MyMap() {
  *   const [map, setMap] = useState<Map | null>(null);
+ *   const controlRef = useRef<VectorControl | null>(null);
  *
  *   return (
  *     <>
@@ -21,8 +34,9 @@ import type { VectorControlReactProps } from "./types";
  *       {map && (
  *         <VectorControlReact
  *           map={map}
- *           title="My Control"
  *           collapsed={false}
+ *           controlRef={controlRef}
+ *           onLayerAdded={(layer) => console.log('added', layer.name)}
  *         />
  *       )}
  *     </>
@@ -36,9 +50,19 @@ import type { VectorControlReactProps } from "./types";
 export function VectorControlReact({
   map,
   onStateChange,
+  onLayerAdded,
+  onLayerRemoved,
+  onError,
+  controlRef: externalRef,
   ...options
-}: VectorControlReactProps): null {
+}: VectorControlReactComponentProps): null {
   const controlRef = useRef<VectorControl | null>(null);
+
+  useImperativeHandle<VectorControl | null, VectorControl | null>(
+    externalRef,
+    () => controlRef.current,
+    [map],
+  );
 
   useEffect(() => {
     if (!map) return;
@@ -47,10 +71,25 @@ export function VectorControlReact({
     const control = new VectorControl(options);
     controlRef.current = control;
 
-    // Register state change handler if provided
+    // Register event handlers if provided
     if (onStateChange) {
       control.on("statechange", (event) => {
         onStateChange(event.state);
+      });
+    }
+    if (onLayerAdded) {
+      control.on("layeradded", (event) => {
+        if (event.layer) onLayerAdded(event.layer);
+      });
+    }
+    if (onLayerRemoved) {
+      control.on("layerremoved", (event) => {
+        if (event.layer) onLayerRemoved(event.layer);
+      });
+    }
+    if (onError) {
+      control.on("error", (event) => {
+        if (event.error) onError(event.error);
       });
     }
 

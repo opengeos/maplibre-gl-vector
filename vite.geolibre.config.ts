@@ -19,7 +19,10 @@ export default defineConfig({
     outDir: "geolibre-plugin/dist",
     emptyOutDir: true,
     rollupOptions: {
-      external: [],
+      // The GeoLibre host provides MapLibre; bundling a second copy would
+      // also break addProtocol (registered on the wrong module instance).
+      // The import is only reached when the global `maplibregl` is absent.
+      external: ["maplibre-gl"],
       output: {
         assetFileNames: () => "style.css",
       },

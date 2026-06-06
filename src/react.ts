@@ -6,9 +6,18 @@ export { useVectorState } from './lib/hooks';
 
 // Re-export types for React consumers
 export type {
-  VectorControlOptions,
-  VectorState,
-  VectorControlReactProps,
+  AutoThreshold,
+  GeometryCategory,
+  RenderMode,
   VectorControlEvent,
   VectorControlEventHandler,
+  VectorControlOptions,
+  VectorControlReactProps,
+  VectorDataSource,
+  VectorEventPayload,
+  VectorFormat,
+  VectorLayerInfo,
+  VectorLayerOptions,
+  VectorLayerStyle,
+  VectorState,
 } from './lib/core/types';
