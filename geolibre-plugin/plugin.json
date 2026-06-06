@@ -1,0 +1,8 @@
+{
+  "id": "geolibre-plugin-template",
+  "name": "GeoLibre Plugin Template",
+  "version": "0.1.0",
+  "entry": "dist/index.js",
+  "description": "A starter GeoLibre plugin bundle with a MapLibre control.",
+  "style": "dist/style.css"
+}

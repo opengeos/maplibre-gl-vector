@@ -1,0 +1,108 @@
+{
+  "name": "geolibre-plugin-template",
+  "version": "0.1.0",
+  "description": "A template for creating GeoLibre plugins with MapLibre GL JS controls",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/types/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/types/react.d.ts",
+        "default": "./dist/react.mjs"
+      },
+      "require": {
+        "types": "./dist/types/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./style.css": "./dist/geolibre-plugin-template.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:lib && npm run build:geolibre",
+    "build:lib": "tsc -p tsconfig.json && vite build",
+    "build:geolibre": "vite build --config vite.geolibre.config.ts",
+    "build:examples": "vite build --config vite.examples.config.ts",
+    "package:geolibre": "npm run build:geolibre && node scripts/package-geolibre-plugin.mjs",
+    "serve:geolibre": "node scripts/serve-geolibre-plugin.mjs",
+    "preview": "vite preview",
+    "test": "vitest --run",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "prepublishOnly": "npm run build:lib"
+  },
+  "keywords": [
+    "geolibre",
+    "maplibre",
+    "maplibre-gl",
+    "map",
+    "plugin",
+    "control",
+    "react",
+    "typescript"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/geolibre-plugin-template.git"
+  },
+  "peerDependencies": {
+    "maplibre-gl": ">=3.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@microsoft/api-extractor": "^7.58.7",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^25.9.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/ui": "^4.1.8",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
+    "maplibre-gl": "^5.24.0",
+    "prettier": "^3.8.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
+    "vite": "^8.0.16",
+    "vite-plugin-dts": "^5.0.2",
+    "vitest": "^4.1.8"
+  }
+}
