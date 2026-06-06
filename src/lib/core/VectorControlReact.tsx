@@ -1,16 +1,16 @@
 import { useEffect, useRef } from "react";
-import { PluginControl } from "./PluginControl";
-import type { PluginControlReactProps } from "./types";
+import { VectorControl } from "./VectorControl";
+import type { VectorControlReactProps } from "./types";
 
 /**
- * React wrapper component for PluginControl.
+ * React wrapper component for VectorControl.
  *
- * This component manages the lifecycle of a PluginControl instance,
+ * This component manages the lifecycle of a VectorControl instance,
  * adding it to the map on mount and removing it on unmount.
  *
  * @example
  * ```tsx
- * import { PluginControlReact } from 'geolibre-plugin-template/react';
+ * import { VectorControlReact } from 'maplibre-gl-vector/react';
  *
  * function MyMap() {
  *   const [map, setMap] = useState<Map | null>(null);
@@ -19,7 +19,7 @@ import type { PluginControlReactProps } from "./types";
  *     <>
  *       <div ref={mapContainer} />
  *       {map && (
- *         <PluginControlReact
+ *         <VectorControlReact
  *           map={map}
  *           title="My Control"
  *           collapsed={false}
@@ -33,18 +33,18 @@ import type { PluginControlReactProps } from "./types";
  * @param props - Component props including map instance and control options
  * @returns null - This component renders nothing directly
  */
-export function PluginControlReact({
+export function VectorControlReact({
   map,
   onStateChange,
   ...options
-}: PluginControlReactProps): null {
-  const controlRef = useRef<PluginControl | null>(null);
+}: VectorControlReactProps): null {
+  const controlRef = useRef<VectorControl | null>(null);
 
   useEffect(() => {
     if (!map) return;
 
     // Create the control instance
-    const control = new PluginControl(options);
+    const control = new VectorControl(options);
     controlRef.current = control;
 
     // Register state change handler if provided

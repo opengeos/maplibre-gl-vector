@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { PluginControl } from '../../src/index';
+import { VectorControl } from '../../src/index';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -21,7 +21,7 @@ map.addControl(new maplibregl.FullscreenControl(), 'top-right');
 map.on('load', () => {
   // Create the plugin control with custom options
   // Set collapsed: true to start with just the 29x29 button (like navigation control)
-  const pluginControl = new PluginControl({
+  const pluginControl = new VectorControl({
     title: 'My Plugin',
     collapsed: false,
     panelWidth: 300,

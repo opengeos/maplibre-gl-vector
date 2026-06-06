@@ -6,7 +6,7 @@
  */
 
 /* Container - matches maplibregl-ctrl styling */
-.plugin-control {
+.vector-control {
   background: #fff;
   border-radius: 4px;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
@@ -14,7 +14,7 @@
 }
 
 /* Toggle button - 29x29 to match navigation control */
-.plugin-control-toggle {
+.vector-control-toggle {
   background: none;
   border: none;
   padding: 0;
@@ -28,11 +28,11 @@
   color: #1f2a37;
 }
 
-.plugin-control-toggle:hover {
+.vector-control-toggle:hover {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
-.plugin-control-toggle .plugin-control-icon {
+.vector-control-toggle .vector-control-icon {
   width: 100%;
   height: 100%;
   position: relative;
@@ -42,7 +42,7 @@
   line-height: 0;
 }
 
-.plugin-control-toggle .plugin-control-icon svg {
+.vector-control-toggle .vector-control-icon svg {
   width: 22px;
   height: 22px;
   display: block;
@@ -51,7 +51,7 @@
 }
 
 /* Panel - positioned dynamically by JavaScript for floating behavior */
-.plugin-control-panel {
+.vector-control-panel {
   position: absolute;
   /* Position is set dynamically by _updatePanelPosition() */
   background: #fff;
@@ -68,12 +68,12 @@
   display: none;
 }
 
-.plugin-control-panel.expanded {
+.vector-control-panel.expanded {
   display: block;
 }
 
 /* Panel header */
-.plugin-control-header {
+.vector-control-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -85,12 +85,12 @@
   margin-bottom: 8px;
 }
 
-.plugin-control-title {
+.vector-control-title {
   flex: 1 1 auto;
   font-size: 13px;
 }
 
-.plugin-control-close {
+.vector-control-close {
   width: 20px;
   height: 20px;
   border: none;
@@ -106,17 +106,17 @@
   justify-content: center;
 }
 
-.plugin-control-close:hover {
+.vector-control-close:hover {
   color: #333;
 }
 
 /* Content */
-.plugin-control-content {
+.vector-control-content {
   max-height: 400px;
   overflow-y: auto;
 }
 
-.plugin-control-placeholder {
+.vector-control-placeholder {
   margin: 0;
   color: #888;
   font-size: 12px;
@@ -125,33 +125,33 @@
 }
 
 /* Scrollbar styling */
-.plugin-control-content::-webkit-scrollbar {
+.vector-control-content::-webkit-scrollbar {
   width: 6px;
 }
 
-.plugin-control-content::-webkit-scrollbar-track {
+.vector-control-content::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.plugin-control-content::-webkit-scrollbar-thumb {
+.vector-control-content::-webkit-scrollbar-thumb {
   background: #ccc;
   border-radius: 3px;
 }
 
-.plugin-control-content::-webkit-scrollbar-thumb:hover {
+.vector-control-content::-webkit-scrollbar-thumb:hover {
   background: #aaa;
 }
 
 /* Form elements */
-.plugin-control-group {
+.vector-control-group {
   margin-bottom: 12px;
 }
 
-.plugin-control-group:last-child {
+.vector-control-group:last-child {
   margin-bottom: 0;
 }
 
-.plugin-control-label {
+.vector-control-label {
   display: block;
   margin-bottom: 4px;
   font-size: 12px;
@@ -159,7 +159,7 @@
   color: #555;
 }
 
-.plugin-control-input {
+.vector-control-input {
   width: 100%;
   padding: 8px 10px;
   font-size: 14px;
@@ -169,12 +169,12 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.plugin-control-input:focus {
+.vector-control-input:focus {
   border-color: #4a90d9;
   box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
 }
 
-.plugin-control-button {
+.vector-control-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -189,33 +189,33 @@
   transition: background-color 0.15s;
 }
 
-.plugin-control-button:hover {
+.vector-control-button:hover {
   background: #3a7bc8;
 }
 
-.plugin-control-button:focus {
+.vector-control-button:focus {
   outline: 2px solid #4a90d9;
   outline-offset: 2px;
 }
 
-.plugin-control-button:disabled {
+.vector-control-button:disabled {
   background: #ccc;
   cursor: not-allowed;
 }
 
 /* Utility classes */
-.plugin-control-flex {
+.vector-control-flex {
   display: flex;
   gap: 8px;
 }
 
-.plugin-control-flex-col {
+.vector-control-flex-col {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.plugin-control-divider {
+.vector-control-divider {
   height: 1px;
   background: #e0e0e0;
   margin: 12px 0;

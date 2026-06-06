@@ -1,6 +1,6 @@
 {
-  "id": "geolibre-plugin-template",
-  "name": "GeoLibre Plugin Template",
+  "id": "maplibre-gl-vector",
+  "name": "MapLibre GL Vector",
   "version": "0.1.0",
   "entry": "dist/index.js",
   "description": "A starter GeoLibre plugin bundle with a MapLibre control.",

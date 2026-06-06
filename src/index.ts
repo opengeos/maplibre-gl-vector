@@ -1,15 +1,15 @@
 // Import styles
-import './lib/styles/plugin-control.css';
+import './lib/styles/vector-control.css';
 
 // Main entry point - Core exports
-export { PluginControl } from './lib/core/PluginControl';
+export { VectorControl } from './lib/core/VectorControl';
 
 // Type exports
 export type {
-  PluginControlOptions,
-  PluginState,
-  PluginControlEvent,
-  PluginControlEventHandler,
+  VectorControlOptions,
+  VectorState,
+  VectorControlEvent,
+  VectorControlEventHandler,
 } from './lib/core/types';
 
 // Utility exports

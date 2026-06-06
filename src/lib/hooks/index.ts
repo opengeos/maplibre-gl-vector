@@ -1,1 +1,1 @@
-export { usePluginState } from './usePluginState';
+export { useVectorState } from './useVectorState';

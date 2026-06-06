@@ -1,11 +1,11 @@
-# GeoLibre Plugin Template
+# MapLibre GL Vector
 
 A template for creating GeoLibre Desktop plugins backed by MapLibre GL JS controls. It still includes the standalone MapLibre control and React wrapper so plugin authors can develop and test the control outside GeoLibre.
 
-[![npm version](https://img.shields.io/npm/v/geolibre-plugin-template.svg)](https://www.npmjs.com/package/geolibre-plugin-template)
+[![npm version](https://img.shields.io/npm/v/maplibre-gl-vector.svg)](https://www.npmjs.com/package/maplibre-gl-vector)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Open in CodeSandbox](https://img.shields.io/badge/Open%20in-CodeSandbox-blue?logo=codesandbox)](https://codesandbox.io/p/github/opengeos/geolibre-plugin-template)
-[![Open in StackBlitz](https://img.shields.io/badge/Open%20in-StackBlitz-blue?logo=stackblitz)](https://stackblitz.com/github/opengeos/geolibre-plugin-template)
+[![Open in CodeSandbox](https://img.shields.io/badge/Open%20in-CodeSandbox-blue?logo=codesandbox)](https://codesandbox.io/p/github/opengeos/maplibre-gl-vector)
+[![Open in StackBlitz](https://img.shields.io/badge/Open%20in-StackBlitz-blue?logo=stackblitz)](https://stackblitz.com/github/opengeos/maplibre-gl-vector)
 
 ## Features
 
@@ -20,7 +20,7 @@ A template for creating GeoLibre Desktop plugins backed by MapLibre GL JS contro
 ## Installation
 
 ```bash
-npm install geolibre-plugin-template
+npm install maplibre-gl-vector
 ```
 
 ## Build a GeoLibre plugin zip
@@ -35,7 +35,7 @@ npm run package:geolibre
 This creates:
 
 ```text
-geolibre-plugin/geolibre-plugin-template-0.1.0.zip
+geolibre-plugin/maplibre-gl-vector-0.1.0.zip
 ```
 
 The generated zip contains:
@@ -76,8 +76,8 @@ because it does not send `Access-Control-Allow-Origin`.
 
 ```typescript
 import maplibregl from "maplibre-gl";
-import { PluginControl } from "geolibre-plugin-template";
-import "geolibre-plugin-template/style.css";
+import { VectorControl } from "maplibre-gl-vector";
+import "maplibre-gl-vector/style.css";
 
 const map = new maplibregl.Map({
   container: "map",
@@ -87,7 +87,7 @@ const map = new maplibregl.Map({
 });
 
 map.on("load", () => {
-  const control = new PluginControl({
+  const control = new VectorControl({
     title: "My Plugin",
     collapsed: false,
     panelWidth: 300,
@@ -103,15 +103,15 @@ map.on("load", () => {
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { Map } from "maplibre-gl";
 import {
-  PluginControlReact,
-  usePluginState,
-} from "geolibre-plugin-template/react";
-import "geolibre-plugin-template/style.css";
+  VectorControlReact,
+  useVectorState,
+} from "maplibre-gl-vector/react";
+import "maplibre-gl-vector/style.css";
 
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
-  const { state, toggle } = usePluginState();
+  const { state, toggle } = useVectorState();
 
   useEffect(() => {
     if (!mapContainer.current) return;
@@ -132,7 +132,7 @@ function App() {
     <div style={{ width: "100%", height: "100vh" }}>
       <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
       {map && (
-        <PluginControlReact
+        <VectorControlReact
           map={map}
           title="My Plugin"
           collapsed={state.collapsed}
@@ -146,7 +146,7 @@ function App() {
 
 ## API
 
-### PluginControl
+### VectorControl
 
 The main control class implementing MapLibre's `IControl` interface.
 
@@ -178,20 +178,20 @@ The main control class implementing MapLibre's `IControl` interface.
 - `expand` - Fired when the panel is expanded
 - `statechange` - Fired when the state changes
 
-### PluginControlReact
+### VectorControlReact
 
-React wrapper component for `PluginControl`.
+React wrapper component for `VectorControl`.
 
 #### Props
 
-All `PluginControl` options plus:
+All `VectorControl` options plus:
 
 | Prop            | Type       | Description                         |
 | --------------- | ---------- | ----------------------------------- |
 | `map`           | `Map`      | MapLibre GL map instance (required) |
 | `onStateChange` | `function` | Callback fired when state changes   |
 
-### usePluginState
+### useVectorState
 
 Custom React hook for managing plugin state.
 
@@ -204,7 +204,7 @@ const {
   setData, // Set custom data
   reset, // Reset to initial state
   toggle, // Toggle collapsed state
-} = usePluginState(initialState);
+} = useVectorState(initialState);
 ```
 
 ## Utilities
@@ -224,8 +224,8 @@ The package exports several utility functions:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/geolibre-plugin-template.git
-cd geolibre-plugin-template
+git clone https://github.com/opengeos/maplibre-gl-vector.git
+cd maplibre-gl-vector
 
 # Install dependencies
 npm install
@@ -253,7 +253,7 @@ npm run dev
 ### Project Structure
 
 ```text
-geolibre-plugin-template/
+maplibre-gl-vector/
 ├── geolibre-plugin/
 │   └── plugin.json          # GeoLibre external plugin manifest
 ├── scripts/
@@ -283,22 +283,22 @@ The examples can be run using Docker. The image is automatically built and publi
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/opengeos/geolibre-plugin-template:latest
+docker pull ghcr.io/opengeos/maplibre-gl-vector:latest
 
 # Run the container
-docker run -p 8080:80 ghcr.io/opengeos/geolibre-plugin-template:latest
+docker run -p 8080:80 ghcr.io/opengeos/maplibre-gl-vector:latest
 ```
 
-Then open http://localhost:8080/geolibre-plugin-template/ in your browser to view the examples.
+Then open http://localhost:8080/maplibre-gl-vector/ in your browser to view the examples.
 
 ### Build Locally
 
 ```bash
 # Build the image
-docker build -t geolibre-plugin-template .
+docker build -t maplibre-gl-vector .
 
 # Run the container
-docker run -p 8080:80 geolibre-plugin-template
+docker run -p 8080:80 maplibre-gl-vector
 ```
 
 ### Available Tags
@@ -325,8 +325,8 @@ To use this template for your own plugin:
 
 1. Clone or fork this repository
 2. Update `package.json` with your plugin name and details
-3. Modify `src/lib/core/PluginControl.ts` to implement your plugin logic
-4. Update the styles in `src/lib/styles/plugin-control.css`
+3. Modify `src/lib/core/VectorControl.ts` to implement your plugin logic
+4. Update the styles in `src/lib/styles/vector-control.css`
 5. Add custom utilities, hooks, or components as needed
 6. Update the README with your plugin's documentation
 

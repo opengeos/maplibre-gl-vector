@@ -1,6 +1,6 @@
-import { PluginControl } from "./lib/core/PluginControl";
-import type { PluginState } from "./lib/core/types";
-import "./lib/styles/plugin-control.css";
+import { VectorControl } from "./lib/core/VectorControl";
+import type { VectorState } from "./lib/core/types";
+import "./lib/styles/vector-control.css";
 
 type GeoLibreMapControlPosition =
   | "top-left"
@@ -10,10 +10,10 @@ type GeoLibreMapControlPosition =
 
 interface GeoLibreAppAPI {
   addMapControl: (
-    control: PluginControl,
+    control: VectorControl,
     position?: GeoLibreMapControlPosition,
   ) => boolean;
-  removeMapControl: (control: PluginControl) => void;
+  removeMapControl: (control: VectorControl) => void;
 }
 
 interface GeoLibrePlugin {
@@ -31,15 +31,15 @@ interface GeoLibrePlugin {
   applyProjectState?: (app: GeoLibreAppAPI, state: unknown) => boolean | void;
 }
 
-let control: PluginControl | null = null;
+let control: VectorControl | null = null;
 let position: GeoLibreMapControlPosition = "top-right";
-let pendingState: Partial<PluginState> | null = null;
+let pendingState: Partial<VectorState> | null = null;
 
-function createControl(): PluginControl {
-  const nextControl = new PluginControl({
+function createControl(): VectorControl {
+  const nextControl = new VectorControl({
     collapsed: pendingState?.collapsed ?? true,
     panelWidth: pendingState?.panelWidth ?? 300,
-    title: "GeoLibre Plugin Template",
+    title: "MapLibre GL Vector",
   });
 
   if (pendingState) {
@@ -49,7 +49,7 @@ function createControl(): PluginControl {
   return nextControl;
 }
 
-function isPluginState(value: unknown): value is Partial<PluginState> {
+function isVectorState(value: unknown): value is Partial<VectorState> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -74,8 +74,8 @@ function isPluginState(value: unknown): value is Partial<PluginState> {
 }
 
 export const plugin: GeoLibrePlugin = {
-  id: "geolibre-plugin-template",
-  name: "GeoLibre Plugin Template",
+  id: "maplibre-gl-vector",
+  name: "MapLibre GL Vector",
   version: "0.1.0",
   activate(app) {
     control = control ?? createControl();
@@ -110,7 +110,7 @@ export const plugin: GeoLibrePlugin = {
     return control?.getState() ?? pendingState ?? undefined;
   },
   applyProjectState(_app, state) {
-    if (!isPluginState(state)) return false;
+    if (!isVectorState(state)) return false;
     pendingState = state;
     control?.setState(state);
   },

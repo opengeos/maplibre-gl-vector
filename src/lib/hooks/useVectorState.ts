@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react';
-import type { PluginState } from '../core/types';
+import type { VectorState } from '../core/types';
 
 /**
  * Default initial state for the plugin
  */
-const DEFAULT_STATE: PluginState = {
+const DEFAULT_STATE: VectorState = {
   collapsed: true,
   panelWidth: 300,
   data: {},
@@ -14,19 +14,19 @@ const DEFAULT_STATE: PluginState = {
  * Custom hook for managing plugin state in React applications.
  *
  * This hook provides a simple way to track and update the state
- * of a PluginControl from React components.
+ * of a VectorControl from React components.
  *
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { state, setCollapsed, setData, reset } = usePluginState();
+ *   const { state, setCollapsed, setData, reset } = useVectorState();
  *
  *   return (
  *     <div>
  *       <button onClick={() => setCollapsed(!state.collapsed)}>
  *         {state.collapsed ? 'Expand' : 'Collapse'}
  *       </button>
- *       <PluginControlReact
+ *       <VectorControlReact
  *         map={map}
  *         collapsed={state.collapsed}
  *         onStateChange={(newState) => setState(newState)}
@@ -39,8 +39,8 @@ const DEFAULT_STATE: PluginState = {
  * @param initialState - Optional initial state values
  * @returns Object containing state and update functions
  */
-export function usePluginState(initialState?: Partial<PluginState>) {
-  const [state, setState] = useState<PluginState>({
+export function useVectorState(initialState?: Partial<VectorState>) {
+  const [state, setState] = useState<VectorState>({
     ...DEFAULT_STATE,
     ...initialState,
   });

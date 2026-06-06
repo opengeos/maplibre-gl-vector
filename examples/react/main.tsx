@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import maplibregl, { Map } from 'maplibre-gl';
-import { PluginControlReact, usePluginState } from '../../src/react';
+import { VectorControlReact, useVectorState } from '../../src/react';
 import '../../src/index.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -11,7 +11,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 function App() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<Map | null>(null);
-  const { state, toggle } = usePluginState({ collapsed: false });
+  const { state, toggle } = useVectorState({ collapsed: false });
 
   // Initialize the map
   useEffect(() => {
@@ -69,7 +69,7 @@ function App() {
 
       {/* Plugin control */}
       {map && (
-        <PluginControlReact
+        <VectorControlReact
           map={map}
           title="React Plugin"
           collapsed={state.collapsed}

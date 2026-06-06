@@ -1,9 +1,9 @@
 import type { Map } from 'maplibre-gl';
 
 /**
- * Options for configuring the PluginControl
+ * Options for configuring the VectorControl
  */
-export interface PluginControlOptions {
+export interface VectorControlOptions {
   /**
    * Whether the control panel should start collapsed (showing only the toggle button)
    * @default true
@@ -37,7 +37,7 @@ export interface PluginControlOptions {
 /**
  * Internal state of the plugin control
  */
-export interface PluginState {
+export interface VectorState {
   /**
    * Whether the control panel is currently collapsed
    */
@@ -57,7 +57,7 @@ export interface PluginState {
 /**
  * Props for the React wrapper component
  */
-export interface PluginControlReactProps extends PluginControlOptions {
+export interface VectorControlReactProps extends VectorControlOptions {
   /**
    * MapLibre GL map instance
    */
@@ -66,15 +66,15 @@ export interface PluginControlReactProps extends PluginControlOptions {
   /**
    * Callback fired when the control state changes
    */
-  onStateChange?: (state: PluginState) => void;
+  onStateChange?: (state: VectorState) => void;
 }
 
 /**
  * Event types emitted by the plugin control
  */
-export type PluginControlEvent = 'collapse' | 'expand' | 'statechange';
+export type VectorControlEvent = 'collapse' | 'expand' | 'statechange';
 
 /**
  * Event handler function type
  */
-export type PluginControlEventHandler = (event: { type: PluginControlEvent; state: PluginState }) => void;
+export type VectorControlEventHandler = (event: { type: VectorControlEvent; state: VectorState }) => void;
