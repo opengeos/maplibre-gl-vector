@@ -145,6 +145,18 @@ In streaming mode the file is wrapped in a view and queried directly - nothing i
 
 Trade-offs: each tile re-reads and reprojects matching rows (slower than the indexed table), and files without a bbox covering column or spatial ordering fall back to scanning per tile. Streaming applies to GeoParquet only; other formats ignore the option and materialize.
 
+**Spatial ordering matters.** Row-group pruning only helps when nearby features share row groups. In testing with a 205 MB / 6.5M-feature global grid, the row-major (unsorted) file took 30-90 s per tile, while the same data Hilbert-sorted with small row groups served tiles in 60-400 ms. Sort with DuckDB:
+
+```sql
+INSTALL spatial; LOAD spatial;
+COPY (
+  SELECT * FROM 'input.parquet'
+  ORDER BY ST_Hilbert(geometry, ST_Extent(ST_MakeEnvelope(-180, -90, 180, 90)))
+) TO 'sorted.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 30000);
+```
+
+Use your dataset's extent as the Hilbert bounds, and keep row groups small (20k-50k rows) so pruning stays fine-grained. The bbox covering column is carried through unchanged. (GeoPandas alternative: sort by `gdf.hilbert_distance()` and write with `to_parquet(write_covering_bbox=True, row_group_size=30000)`.)
+
 ### Size thresholds
 
 In the default `'auto'` render mode, a dataset is rendered as **dynamic tiles** when it exceeds **50,000 features** or **25 MB** (whichever trips first); otherwise it is converted to GeoJSON. Both limits are configurable, and a per-layer `renderMode` always wins:
