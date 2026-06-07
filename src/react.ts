@@ -1,14 +1,23 @@
 // React entry point
-export { PluginControlReact } from './lib/core/PluginControlReact';
+export { VectorControlReact } from './lib/core/VectorControlReact';
 
 // React hooks
-export { usePluginState } from './lib/hooks';
+export { useVectorState } from './lib/hooks';
 
 // Re-export types for React consumers
 export type {
-  PluginControlOptions,
-  PluginState,
-  PluginControlReactProps,
-  PluginControlEvent,
-  PluginControlEventHandler,
+  AutoThreshold,
+  GeometryCategory,
+  RenderMode,
+  VectorControlEvent,
+  VectorControlEventHandler,
+  VectorControlOptions,
+  VectorControlReactProps,
+  VectorDataSource,
+  VectorEventPayload,
+  VectorFormat,
+  VectorLayerInfo,
+  VectorLayerOptions,
+  VectorLayerStyle,
+  VectorState,
 } from './lib/core/types';

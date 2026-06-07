@@ -1,48 +1,68 @@
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import type {
-  PluginControlOptions,
-  PluginState,
-  PluginControlEvent,
-  PluginControlEventHandler,
+  RenderMode,
+  VectorControlEvent,
+  VectorControlEventHandler,
+  VectorControlOptions,
+  VectorDataSource,
+  VectorEventPayload,
+  VectorLayerInfo,
+  VectorLayerOptions,
+  VectorLayerStyle,
+  VectorState,
 } from './types';
+import { LayerManager } from './LayerManager';
+import type { IEngine } from '../engine/types';
+import { createEngine } from '../engine/DuckDBEngine';
+import { renderPanelUI } from '../ui/panel';
 
 /**
- * Default options for the PluginControl
+ * Default options for the VectorControl
  */
-const DEFAULT_OPTIONS: Required<PluginControlOptions> = {
+const DEFAULT_OPTIONS: Required<
+  Pick<VectorControlOptions, 'collapsed' | 'position' | 'title' | 'panelWidth' | 'className'>
+> = {
   collapsed: true,
   position: 'top-right',
-  title: 'Plugin Control',
-  panelWidth: 300,
+  title: 'Vector Data',
+  panelWidth: 320,
   className: '',
 };
 
 /**
  * Event handlers map type
  */
-type EventHandlersMap = globalThis.Map<PluginControlEvent, Set<PluginControlEventHandler>>;
+type EventHandlersMap = globalThis.Map<VectorControlEvent, Set<VectorControlEventHandler>>;
 
 /**
- * A template MapLibre GL control that can be customized for various plugin needs.
+ * A MapLibre GL control for visualizing vector data in many formats
+ * (GeoJSON, GeoPackage, Shapefile, GeoParquet, FlatGeobuf, CSV/WKT).
+ *
+ * Small datasets are converted to GeoJSON; large datasets are rendered
+ * as dynamic MVT tiles generated client-side by DuckDB-WASM and served
+ * through a `duckdb://` protocol handler. DuckDB is lazy-loaded from a
+ * CDN only when a non-GeoJSON format (or tile rendering) is requested.
  *
  * @example
  * ```typescript
- * const control = new PluginControl({
- *   title: 'My Custom Control',
- *   collapsed: false,
- *   panelWidth: 320,
- * });
+ * const control = new VectorControl({ collapsed: false });
  * map.addControl(control, 'top-right');
+ * await control.addData('https://example.com/data.geojson');
+ * await control.addData('https://example.com/buildings.parquet');
  * ```
  */
-export class PluginControl implements IControl {
+export class VectorControl implements IControl {
   private _map?: MapLibreMap;
   private _mapContainer?: HTMLElement;
   private _container?: HTMLElement;
   private _panel?: HTMLElement;
-  private _options: Required<PluginControlOptions>;
-  private _state: PluginState;
+  private _content?: HTMLElement;
+  private _options: VectorControlOptions & typeof DEFAULT_OPTIONS;
+  private _state: VectorState;
   private _eventHandlers: EventHandlersMap = new globalThis.Map();
+  private _layerManager?: LayerManager;
+  private _enginePromise?: Promise<IEngine>;
+  private _disposePanelUI?: () => void;
 
   // Panel positioning handlers
   private _resizeHandler: (() => void) | null = null;
@@ -50,15 +70,16 @@ export class PluginControl implements IControl {
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
 
   /**
-   * Creates a new PluginControl instance.
+   * Creates a new VectorControl instance.
    *
    * @param options - Configuration options for the control
    */
-  constructor(options?: Partial<PluginControlOptions>) {
+  constructor(options?: Partial<VectorControlOptions>) {
     this._options = { ...DEFAULT_OPTIONS, ...options };
     this._state = {
       collapsed: this._options.collapsed,
       panelWidth: this._options.panelWidth,
+      layers: [],
       data: {},
     };
   }
@@ -76,8 +97,23 @@ export class PluginControl implements IControl {
     this._container = this._createContainer();
     this._panel = this._createPanel();
 
+    this._layerManager = new LayerManager({
+      map,
+      options: this._options,
+      emit: (type, extra) => this._emit(type, extra),
+      getEngine: () => this._getEngine(),
+    });
+
     // Append panel to map container for independent positioning (avoids overlap with other controls)
     this._mapContainer.appendChild(this._panel);
+
+    // Render the data loading / layer list UI into the panel content area
+    if (this._content) {
+      this._disposePanelUI = renderPanelUI({
+        container: this._content,
+        control: this,
+      });
+    }
 
     // Setup event listeners for panel positioning and click-outside
     this._setupEventListeners();
@@ -113,6 +149,18 @@ export class PluginControl implements IControl {
       this._clickOutsideHandler = null;
     }
 
+    // Tear down panel UI and layers
+    this._disposePanelUI?.();
+    this._disposePanelUI = undefined;
+    this._layerManager?.dispose();
+    this._layerManager = undefined;
+
+    // Terminate the DuckDB worker if it was loaded
+    if (this._enginePromise) {
+      this._enginePromise.then((engine) => engine.dispose()).catch(() => undefined);
+      this._enginePromise = undefined;
+    }
+
     // Remove panel from map container
     this._panel?.parentNode?.removeChild(this._panel);
 
@@ -123,16 +171,113 @@ export class PluginControl implements IControl {
     this._mapContainer = undefined;
     this._container = undefined;
     this._panel = undefined;
+    this._content = undefined;
     this._eventHandlers.clear();
   }
+
+  // ---------------------------------------------------------------------
+  // Data API
+  // ---------------------------------------------------------------------
+
+  /**
+   * Loads a vector data source and adds it to the map.
+   *
+   * @param source - URL string, File/Blob, or GeoJSON object
+   * @param options - Layer options
+   * @returns Metadata of the added layer
+   */
+  async addData(
+    source: VectorDataSource,
+    options?: VectorLayerOptions,
+  ): Promise<VectorLayerInfo> {
+    return this._manager().addData(source, options);
+  }
+
+  /**
+   * Removes a layer added with {@link addData}.
+   *
+   * @param id - The layer id
+   */
+  removeLayer(id: string): void {
+    this._layerManager?.removeLayer(id);
+  }
+
+  /**
+   * Removes all layers added with {@link addData}.
+   */
+  removeAll(): void {
+    this._layerManager?.removeAll();
+  }
+
+  /**
+   * Returns metadata for all loaded layers.
+   */
+  getLayers(): VectorLayerInfo[] {
+    return this._layerManager?.getLayers() ?? [];
+  }
+
+  /**
+   * Returns metadata for a single layer.
+   *
+   * @param id - The layer id
+   */
+  getLayer(id: string): VectorLayerInfo | undefined {
+    return this._layerManager?.getLayer(id);
+  }
+
+  /**
+   * Shows or hides a layer.
+   *
+   * @param id - The layer id
+   * @param visible - Whether the layer should be visible
+   */
+  setLayerVisibility(id: string, visible: boolean): void {
+    this._layerManager?.setLayerVisibility(id, visible);
+  }
+
+  /**
+   * Zooms the map to a layer's extent.
+   *
+   * @param id - The layer id
+   */
+  zoomToLayer(id: string): void {
+    this._layerManager?.zoomToLayer(id);
+  }
+
+  /**
+   * Applies a style patch to a layer.
+   *
+   * @param id - The layer id
+   * @param style - Partial style update
+   */
+  setLayerStyle(id: string, style: Partial<VectorLayerStyle>): void {
+    this._layerManager?.setLayerStyle(id, style);
+  }
+
+  /**
+   * Switches a layer between GeoJSON and dynamic tile rendering.
+   *
+   * @param id - The layer id
+   * @param mode - The requested render mode
+   */
+  async setRenderMode(id: string, mode: RenderMode): Promise<void> {
+    return this._manager().setRenderMode(id, mode);
+  }
+
+  // ---------------------------------------------------------------------
+  // State and events
+  // ---------------------------------------------------------------------
 
   /**
    * Gets the current state of the control.
    *
-   * @returns The current plugin state
+   * @returns The current control state
    */
-  getState(): PluginState {
-    return { ...this._state };
+  getState(): VectorState {
+    return {
+      ...this._state,
+      layers: this._layerManager?.getLayers() ?? this._state.layers,
+    };
   }
 
   /**
@@ -140,7 +285,7 @@ export class PluginControl implements IControl {
    *
    * @param newState - Partial state to merge with current state
    */
-  setState(newState: Partial<PluginState>): void {
+  setState(newState: Partial<VectorState>): void {
     this._state = { ...this._state, ...newState };
     this._emit('statechange');
   }
@@ -189,7 +334,7 @@ export class PluginControl implements IControl {
    * @param event - The event type to listen for
    * @param handler - The callback function
    */
-  on(event: PluginControlEvent, handler: PluginControlEventHandler): void {
+  on(event: VectorControlEvent, handler: VectorControlEventHandler): void {
     if (!this._eventHandlers.has(event)) {
       this._eventHandlers.set(event, new Set());
     }
@@ -202,7 +347,7 @@ export class PluginControl implements IControl {
    * @param event - The event type
    * @param handler - The callback function to remove
    */
-  off(event: PluginControlEvent, handler: PluginControlEventHandler): void {
+  off(event: VectorControlEvent, handler: VectorControlEventHandler): void {
     this._eventHandlers.get(event)?.delete(handler);
   }
 
@@ -225,15 +370,60 @@ export class PluginControl implements IControl {
   }
 
   /**
+   * Gets the panel content element that hosts the control UI.
+   *
+   * @returns The content element or undefined if not added to a map
+   */
+  getContentElement(): HTMLElement | undefined {
+    return this._content;
+  }
+
+  /**
+   * Returns the layer manager, throwing when the control has not been
+   * added to a map yet.
+   */
+  private _manager(): LayerManager {
+    if (!this._layerManager) {
+      throw new Error('VectorControl must be added to a map before loading data');
+    }
+    return this._layerManager;
+  }
+
+  /**
+   * Lazily creates the shared DuckDB engine on first use.
+   */
+  private _getEngine(): Promise<IEngine> {
+    if (!this._enginePromise) {
+      this._enginePromise = createEngine({
+        onProgress: (message) => this._emit('loading', { message }),
+      });
+      // Allow a retry on the next request when engine creation fails
+      // (e.g. the CDN was unreachable).
+      this._enginePromise.catch(() => {
+        this._enginePromise = undefined;
+      });
+    }
+    return this._enginePromise;
+  }
+
+  /**
    * Emits an event to all registered handlers.
    *
    * @param event - The event type to emit
+   * @param extra - Optional layer/error/message context
    */
-  private _emit(event: PluginControlEvent): void {
+  private _emit(
+    event: VectorControlEvent,
+    extra?: Pick<VectorEventPayload, 'layer' | 'error' | 'message'>,
+  ): void {
     const handlers = this._eventHandlers.get(event);
     if (handlers) {
-      const eventData = { type: event, state: this.getState() };
+      const eventData: VectorEventPayload = { type: event, state: this.getState(), ...extra };
       handlers.forEach((handler) => handler(eventData));
+    }
+    // Layer events also imply a state change for state subscribers.
+    if (event === 'layeradded' || event === 'layerremoved' || event === 'layerupdated') {
+      this._emit('statechange');
     }
   }
 
@@ -245,22 +435,21 @@ export class PluginControl implements IControl {
    */
   private _createContainer(): HTMLElement {
     const container = document.createElement('div');
-    container.className = `maplibregl-ctrl maplibregl-ctrl-group plugin-control${
+    container.className = `maplibregl-ctrl maplibregl-ctrl-group vector-control${
       this._options.className ? ` ${this._options.className}` : ''
     }`;
 
     // Create toggle button (29x29 to match navigation control)
     const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'plugin-control-toggle';
+    toggleBtn.className = 'vector-control-toggle';
     toggleBtn.type = 'button';
     toggleBtn.setAttribute('aria-label', this._options.title);
     toggleBtn.innerHTML = `
-      <span class="plugin-control-icon">
+      <span class="vector-control-icon">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
+          <path d="M12 2 2 7l10 5 10-5-10-5z"/>
+          <path d="M2 12l10 5 10-5"/>
+          <path d="M2 17l10 5 10-5"/>
         </svg>
       </span>
     `;
@@ -279,19 +468,19 @@ export class PluginControl implements IControl {
    */
   private _createPanel(): HTMLElement {
     const panel = document.createElement('div');
-    panel.className = 'plugin-control-panel';
+    panel.className = 'vector-control-panel';
     panel.style.width = `${this._options.panelWidth}px`;
 
     // Create header with title and close button
     const header = document.createElement('div');
-    header.className = 'plugin-control-header';
+    header.className = 'vector-control-header';
 
     const title = document.createElement('span');
-    title.className = 'plugin-control-title';
+    title.className = 'vector-control-title';
     title.textContent = this._options.title;
 
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'plugin-control-close';
+    closeBtn.className = 'vector-control-close';
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', 'Close panel');
     closeBtn.innerHTML = '&times;';
@@ -300,14 +489,10 @@ export class PluginControl implements IControl {
     header.appendChild(title);
     header.appendChild(closeBtn);
 
-    // Create content area
+    // Create content area (filled by the panel UI)
     const content = document.createElement('div');
-    content.className = 'plugin-control-content';
-    content.innerHTML = `
-      <p class="plugin-control-placeholder">
-        Add your custom plugin content here.
-      </p>
-    `;
+    content.className = 'vector-control-content';
+    this._content = content;
 
     panel.appendChild(header);
     panel.appendChild(content);
@@ -375,7 +560,7 @@ export class PluginControl implements IControl {
     if (!this._container || !this._panel || !this._mapContainer) return;
 
     // Get the toggle button (first child of container)
-    const button = this._container.querySelector('.plugin-control-toggle');
+    const button = this._container.querySelector('.vector-control-toggle');
     if (!button) return;
 
     const buttonRect = button.getBoundingClientRect();

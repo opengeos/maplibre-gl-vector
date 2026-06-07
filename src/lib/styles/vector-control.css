@@ -1,0 +1,425 @@
+/**
+ * MapLibre GL Plugin Control Styles
+ *
+ * This stylesheet provides the base styles for the plugin control.
+ * Customize these styles to match your plugin's design.
+ */
+
+/* Container - matches maplibregl-ctrl styling */
+.vector-control {
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Toggle button - 29x29 to match navigation control */
+.vector-control-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 29px;
+  height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  color: #1f2a37;
+}
+
+.vector-control-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.vector-control-toggle .vector-control-icon {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.vector-control-toggle .vector-control-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentcolor;
+  fill: none;
+}
+
+/* Panel - positioned dynamically by JavaScript for floating behavior */
+.vector-control-panel {
+  position: absolute;
+  /* Position is set dynamically by _updatePanelPosition() */
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  min-width: 240px;
+  max-width: 420px;
+  max-height: 500px;
+  overflow-y: auto;
+  z-index: 1000;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  display: none;
+}
+
+.vector-control-panel.expanded {
+  display: block;
+}
+
+/* Panel header */
+.vector-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  color: #333;
+  padding: 4px 0 8px 0;
+  border-bottom: 1px solid #e0e0e0;
+  margin-bottom: 8px;
+}
+
+.vector-control-title {
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+.vector-control-close {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #999;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vector-control-close:hover {
+  color: #333;
+}
+
+/* Content */
+.vector-control-content {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.vector-control-placeholder {
+  margin: 0;
+  color: #888;
+  font-size: 12px;
+  text-align: center;
+  padding: 16px 0;
+}
+
+/* Scrollbar styling */
+.vector-control-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.vector-control-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.vector-control-content::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.vector-control-content::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+}
+
+/* Form elements */
+.vector-control-group {
+  margin-bottom: 12px;
+}
+
+.vector-control-group:last-child {
+  margin-bottom: 0;
+}
+
+.vector-control-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+}
+
+.vector-control-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.vector-control-input:focus {
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+}
+
+.vector-control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  background: #4a90d9;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.vector-control-button:hover {
+  background: #3a7bc8;
+}
+
+.vector-control-button:focus {
+  outline: 2px solid #4a90d9;
+  outline-offset: 2px;
+}
+
+.vector-control-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* Utility classes */
+.vector-control-flex {
+  display: flex;
+  gap: 8px;
+}
+
+.vector-control-flex-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vector-control-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 12px 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Vector data UI                                                      */
+/* ------------------------------------------------------------------ */
+
+/* Drop zone */
+.vector-control-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 10px;
+  border: 1.5px dashed #c3cbd5;
+  border-radius: 6px;
+  color: #667085;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.vector-control-dropzone:hover,
+.vector-control-dropzone.dragover {
+  border-color: #4a90d9;
+  background: rgba(74, 144, 217, 0.06);
+  color: #4a90d9;
+}
+
+.vector-control-svg-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+/* URL row */
+.vector-control-url-row {
+  margin-bottom: 8px;
+}
+
+.vector-control-url-row .vector-control-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.vector-control-url-row .vector-control-button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* Status line */
+.vector-control-status {
+  font-size: 11px;
+  color: #4a90d9;
+  padding: 4px 2px;
+  overflow-wrap: break-word;
+}
+
+.vector-control-status.error {
+  color: #d9534a;
+}
+
+/* Section title */
+.vector-control-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #98a2b3;
+  margin-bottom: 6px;
+}
+
+/* Layer list */
+.vector-control-layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vector-control-empty {
+  font-size: 12px;
+  color: #98a2b3;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.vector-control-layer-item {
+  border: 1px solid #e9edf2;
+  border-radius: 6px;
+  padding: 6px;
+  background: #fafbfc;
+}
+
+.vector-control-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vector-control-layer-name-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.vector-control-layer-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #344054;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vector-control-layer-meta {
+  font-size: 10px;
+  color: #98a2b3;
+}
+
+.vector-control-layer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.vector-control-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #667085;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.vector-control-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f2a37;
+}
+
+/* Style editor */
+.vector-control-style-editor {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e9edf2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vector-control-style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #475467;
+}
+
+.vector-control-style-label {
+  flex: 0 0 44px;
+}
+
+.vector-control-color {
+  width: 36px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.vector-control-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #4a90d9;
+}
+
+.vector-control-range-value {
+  flex: 0 0 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #667085;
+}
+
+.vector-control-select {
+  flex: 1 1 auto;
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid #d0d5dd;
+  border-radius: 4px;
+  background: #fff;
+  color: #344054;
+}
