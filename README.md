@@ -217,6 +217,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `beforeId` | `string` | - | Existing map layer id new layers are inserted before (e.g. a label layer) |
 | `enablePicker` | `boolean` | `true` | Click a feature to open a popup with its attributes |
 | `defaultIngestMode` | `'table' \| 'stream'` | `'table'` | Materialize into DuckDB or stream GeoParquet in place |
+| `urlPlaceholder` | `string` | `'https://example.com/data.geojson'` | Placeholder text for the panel's URL input |
 
 #### Data Methods
 

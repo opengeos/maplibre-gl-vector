@@ -112,6 +112,7 @@ export class VectorControl implements IControl {
       this._disposePanelUI = renderPanelUI({
         container: this._content,
         control: this,
+        urlPlaceholder: this._options.urlPlaceholder,
       });
     }
 

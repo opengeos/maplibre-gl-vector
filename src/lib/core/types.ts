@@ -144,6 +144,12 @@ export interface VectorControlOptions {
    * @default 'table'
    */
   defaultIngestMode?: IngestMode;
+
+  /**
+   * Placeholder text shown in the panel's URL input
+   * @default 'https://example.com/data.geojson'
+   */
+  urlPlaceholder?: string;
 }
 
 /**

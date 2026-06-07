@@ -38,6 +38,8 @@ export interface PanelUIOptions {
   container: HTMLElement;
   /** The owning control */
   control: PanelHost;
+  /** Placeholder text for the URL input */
+  urlPlaceholder?: string;
 }
 
 /**
@@ -90,7 +92,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const urlRow = el('div', 'vector-control-flex vector-control-url-row');
   const urlInput = el('input', 'vector-control-input') as HTMLInputElement;
   urlInput.type = 'url';
-  urlInput.placeholder = 'https://example.com/data.geojson';
+  urlInput.placeholder = options.urlPlaceholder ?? 'https://example.com/data.geojson';
   const urlButton = el('button', 'vector-control-button', { type: 'button' });
   urlButton.textContent = 'Load';
   const loadUrl = () => {
