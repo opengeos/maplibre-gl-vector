@@ -145,6 +145,8 @@ In streaming mode the file is wrapped in a view and queried directly - nothing i
 
 Trade-offs: each tile re-reads and reprojects matching rows (slower than the indexed table), and files without a bbox covering column or spatial ordering fall back to scanning per tile. Streaming applies to GeoParquet only; other formats ignore the option and materialize.
 
+**Remote file size limit:** DuckDB-WASM cannot open remote files of **2 GiB or larger** (its HTTP filesystem handles sizes as 32-bit values). The control probes the size with a HEAD request and reports a clear error; split larger datasets into partitions under 2 GiB.
+
 **Spatial ordering matters.** Row-group pruning only helps when nearby features share row groups. In testing with a 205 MB / 6.5M-feature global grid, the row-major (unsorted) file took 30-90 s per tile, while the same data Hilbert-sorted with small row groups served tiles in 60-400 ms. Sort with DuckDB:
 
 ```sql

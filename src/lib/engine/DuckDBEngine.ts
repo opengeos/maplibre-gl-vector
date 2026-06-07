@@ -5,6 +5,7 @@ import type { Bbox } from '../utils/geometry';
 import { mergeGeometryCategory } from '../utils/geometry';
 import { loadDuckDB, type LoadedDuckDB } from './duckdbLoader';
 import { encodeTileFromFeatures, tileBbox4326 } from '../tiles/mvtFallback';
+import { assertRemoteFileSupported, probeRemoteSize } from '../utils/remote';
 import {
   LON_LAT_COLUMN_PAIRS,
   WKT_COLUMN_NAMES,
@@ -166,10 +167,12 @@ export class DuckDBEngine implements IEngine {
     return this._queue.enqueue(async () => {
       const streamed = options.mode === 'stream' && options.format === 'geoparquet';
       const meta: TableMeta = { propertyColumns: [], prepared: false, streamed };
-      const byteSize =
-        typeof Blob !== 'undefined' && source instanceof Blob ? source.size : undefined;
 
       const path = await this._registerSource(source, tableName, options);
+      const byteSize =
+        typeof Blob !== 'undefined' && source instanceof Blob
+          ? source.size
+          : await probeRemoteSize(source as string);
       if (streamed) {
         await this._createStreamView(tableName, path, options);
       } else {
@@ -329,7 +332,12 @@ export class DuckDBEngine implements IEngine {
     registrationName: string,
     options: IngestOptions,
   ): Promise<string> {
-    if (typeof source === 'string') return source;
+    if (typeof source === 'string') {
+      // Defense in depth: the layer manager checks before loading the
+      // engine; the shared cache makes this probe free.
+      await assertRemoteFileSupported(source);
+      return source;
+    }
 
     const shared = this._sharedFiles.get(source);
     if (shared) return shared;
