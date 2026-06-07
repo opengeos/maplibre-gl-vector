@@ -93,6 +93,8 @@ export class LayerManager {
   private _records = new Map<string, LayerRecord>();
   private _popup?: { remove(): void };
   private _popupOwnerId?: string;
+  private _pendingTiles = 0;
+  private _tileStatusTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Creates a layer manager.
@@ -351,6 +353,10 @@ export class LayerManager {
     this._records.clear();
     this._popup?.remove();
     this._popup = undefined;
+    if (this._tileStatusTimer) {
+      clearTimeout(this._tileStatusTimer);
+      this._tileStatusTimer = undefined;
+    }
   }
 
   /**
@@ -490,6 +496,12 @@ export class LayerManager {
     const engine = await this._getEngine();
     const tableName = tableNameFor(record.info.id);
     const source = await this._engineSource(record.source);
+    this._emit('loading', {
+      message:
+        record.info.ingestMode === 'stream'
+          ? `Opening ${record.info.name} (streaming, reading metadata)...`
+          : `Reading ${record.info.name} into DuckDB...`,
+    });
     const summary = await engine.ingest(source, tableName, {
       format: record.info.format,
       sourceLayer: record.sourceLayer,
@@ -517,6 +529,11 @@ export class LayerManager {
         summary.geometryType !== 'unknown' ? summary.geometryType : record.info.geometryType;
     }
     const tableName = record.tableName!;
+    if (record.info.ingestMode !== 'stream') {
+      this._emit('loading', {
+        message: `Indexing ${record.info.name} for tiles (reprojecting + R-Tree)...`,
+      });
+    }
     await engine.prepareTiles(tableName);
 
     const id = record.info.id;
@@ -525,7 +542,7 @@ export class LayerManager {
     const providerKey = record.providerKey ?? generateId(`${id}-tiles`);
     record.providerKey = providerKey;
     await registerTileProvider(providerKey, (z, x, y, signal) =>
-      engine.getTile(tableName, id, z, x, y, signal),
+      this._trackTileActivity(engine.getTile(tableName, id, z, x, y, signal)),
     );
 
     record.info.renderMode = 'tiles';
@@ -554,6 +571,7 @@ export class LayerManager {
     let collection: FeatureCollection;
     if (record.tableName) {
       const engine = await this._getEngine();
+      this._emit('loading', { message: `Converting ${record.info.name} to GeoJSON...` });
       collection = await engine.exportGeoJSON(record.tableName);
     } else {
       collection = (await this._resolveGeoJSON(record.source)).collection;
@@ -722,6 +740,44 @@ export class LayerManager {
     popup.addTo(this._map);
     this._popup = popup;
     this._popupOwnerId = info.id;
+  }
+
+  /**
+   * Surfaces tile generation progress through 'loading' events: shows
+   * a pending count while tile queries run and clears the status
+   * shortly after the queue drains (the delay avoids flicker between
+   * consecutive tiles).
+   */
+  private _trackTileActivity(task: Promise<Uint8Array>): Promise<Uint8Array> {
+    this._pendingTiles += 1;
+    if (this._tileStatusTimer) {
+      clearTimeout(this._tileStatusTimer);
+      this._tileStatusTimer = undefined;
+    }
+    this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+
+    const settle = () => {
+      this._pendingTiles -= 1;
+      if (this._pendingTiles === 0) {
+        this._tileStatusTimer = setTimeout(() => {
+          this._tileStatusTimer = undefined;
+          this._emit('loading', { message: '' });
+        }, 400);
+      } else {
+        this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+      }
+    };
+
+    return task.then(
+      (value) => {
+        settle();
+        return value;
+      },
+      (err) => {
+        settle();
+        throw err;
+      },
+    );
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {

@@ -3,7 +3,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import { LayerManager, tableNameFor } from '../src/lib/core/LayerManager';
 import type { IEngine } from '../src/lib/engine/types';
-import { hasTileProvider } from '../src/lib/tiles/protocol';
+import { hasTileProvider, loadTile } from '../src/lib/tiles/protocol';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -271,6 +271,28 @@ describe('LayerManager engine path', () => {
     await manager.addData(new File(['x'], 'city.gpkg'), { id: 'one', sourceLayer: 'roads' });
     expect(engine.listLayers).not.toHaveBeenCalled();
     expect(manager.getLayers()).toHaveLength(1);
+  });
+
+  it('reports tile generation progress through loading events', async () => {
+    const engine = createMockEngine();
+    const { manager, map, emit } = createManager({}, engine);
+    await manager.addData(new File(['x'], 'data.fgb'), { id: 'prog', renderMode: 'tiles' });
+    const sourceSpec = map.addSource.mock.calls.find((c) => c[0] === 'prog-source')?.[1] as {
+      tiles: string[];
+    };
+    const providerKey = providerKeyFromSource(sourceSpec);
+    emit.mockClear();
+
+    await loadTile(`duckdb://${encodeURIComponent(providerKey)}/0/0/0`, new AbortController().signal);
+    expect(emit).toHaveBeenCalledWith(
+      'loading',
+      expect.objectContaining({ message: 'Generating tiles (1 pending)...' }),
+    );
+    // Status clears shortly after the queue drains
+    await vi.waitFor(() =>
+      expect(emit).toHaveBeenCalledWith('loading', expect.objectContaining({ message: '' })),
+    );
+    manager.removeLayer('prog');
   });
 
   it('honors the per-layer tiles override below thresholds', async () => {
