@@ -5,6 +5,7 @@ import type { Bbox } from '../utils/geometry';
 import { mergeGeometryCategory } from '../utils/geometry';
 import { loadDuckDB, type LoadedDuckDB } from './duckdbLoader';
 import { encodeTileFromFeatures, tileBbox4326 } from '../tiles/mvtFallback';
+import { assertRemoteFileSupported, probeRemoteSize } from '../utils/remote';
 import {
   LON_LAT_COLUMN_PAIRS,
   WKT_COLUMN_NAMES,
@@ -36,14 +37,6 @@ export interface CreateEngineOptions {
   /** Progress message callback (e.g. for the panel status line) */
   onProgress?: (message: string) => void;
 }
-
-/**
- * DuckDB-WASM's HTTP filesystem handles remote file sizes as 32-bit
- * values; files of 2 GiB or larger fail to open with an opaque
- * "Cannot read properties of null (reading 'byteLength')" error.
- * Checked proactively so users get an actionable message instead.
- */
-export const MAX_REMOTE_FILE_BYTES = 2 ** 31 - 1;
 
 /**
  * Serializes async work onto a single promise chain. DuckDB-WASM runs
@@ -145,8 +138,6 @@ export class DuckDBEngine implements IEngine {
    * released with their table.
    */
   private _sharedFiles = new Map<Blob, string>();
-  /** Remote file sizes from HEAD probes, keyed by URL */
-  private _remoteSizes = new Map<string, number | undefined>();
 
   /**
    * Creates an engine wrapper over a loaded DuckDB instance.
@@ -181,7 +172,7 @@ export class DuckDBEngine implements IEngine {
       const byteSize =
         typeof Blob !== 'undefined' && source instanceof Blob
           ? source.size
-          : this._remoteSizes.get(source as string);
+          : await probeRemoteSize(source as string);
       if (streamed) {
         await this._createStreamView(tableName, path, options);
       } else {
@@ -342,7 +333,9 @@ export class DuckDBEngine implements IEngine {
     options: IngestOptions,
   ): Promise<string> {
     if (typeof source === 'string') {
-      await this._checkRemoteSize(source);
+      // Defense in depth: the layer manager checks before loading the
+      // engine; the shared cache makes this probe free.
+      await assertRemoteFileSupported(source);
       return source;
     }
 
@@ -420,35 +413,6 @@ export class DuckDBEngine implements IEngine {
     }
 
     throw new Error(`No geometry column found in source (format: ${options.format})`);
-  }
-
-  /**
-   * Probes a remote file's size with a HEAD request and rejects files
-   * DuckDB-WASM cannot open (>= 2 GiB). Sizes are cached per URL; a
-   * blocked HEAD (no CORS for it, etc.) is ignored and DuckDB gets to
-   * try anyway.
-   */
-  private async _checkRemoteSize(url: string): Promise<void> {
-    if (!/^https?:\/\//i.test(url)) return;
-    if (!this._remoteSizes.has(url)) {
-      let size: number | undefined;
-      try {
-        const response = await fetch(url, { method: 'HEAD' });
-        const length = response.headers.get('content-length');
-        if (length) size = Number(length);
-      } catch {
-        // HEAD unavailable; let DuckDB attempt the open.
-      }
-      this._remoteSizes.set(url, size);
-    }
-    const size = this._remoteSizes.get(url);
-    if (size !== undefined && size > MAX_REMOTE_FILE_BYTES) {
-      const gib = (size / 1024 ** 3).toFixed(2);
-      throw new Error(
-        `This file is ${gib} GiB; DuckDB-WASM cannot open remote files of 2 GiB or larger. ` +
-          `Use a smaller file or partition (e.g. split by region).`,
-      );
-    }
   }
 
   /**

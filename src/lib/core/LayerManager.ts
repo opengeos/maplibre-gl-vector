@@ -25,6 +25,7 @@ import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../til
 import { summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
 import { generateId } from '../utils/helpers';
 import { getMaplibre } from '../utils/maplibre';
+import { assertRemoteFileSupported } from '../utils/remote';
 
 /**
  * Emits a control event with optional layer/error context.
@@ -140,6 +141,19 @@ export class LayerManager {
     const id = options.id ?? generateId('vector');
     if (this._records.has(id)) {
       throw new Error(`Layer "${id}" already exists`);
+    }
+
+    // Reject remote files DuckDB-WASM cannot open BEFORE the engine
+    // download starts, so the error is immediate.
+    const engineBound = !(detected.format === 'geojson' && options.renderMode !== 'tiles');
+    if (engineBound && typeof source === 'string') {
+      try {
+        await assertRemoteFileSupported(source);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this._emit('error', { error });
+        throw error;
+      }
     }
 
     // Multi-layer containers (GeoPackage tables, KML folders, ...)
