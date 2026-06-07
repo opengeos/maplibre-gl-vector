@@ -1,7 +1,7 @@
 {
   "id": "maplibre-gl-vector",
   "name": "MapLibre GL Vector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "dist/index.js",
   "description": "Visualize vector data (GeoJSON, GeoPackage, Shapefile, GeoParquet, FlatGeobuf, CSV) with DuckDB-WASM powered dynamic tiles.",
   "style": "dist/style.css"

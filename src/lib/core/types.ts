@@ -199,6 +199,12 @@ export interface VectorLayerOptions {
   visible?: boolean;
 
   /**
+   * Master opacity (0-1) multiplied into every style opacity
+   * @default 1
+   */
+  opacity?: number;
+
+  /**
    * Whether to zoom the map to the layer extent after adding
    * @default true
    */
@@ -239,6 +245,20 @@ export interface VectorLayerOptions {
 }
 
 /**
+ * Where a layer's data came from. URL-backed layers can be recreated
+ * from this descriptor (e.g. when a host application restores a saved
+ * project); file- and object-backed layers cannot.
+ */
+export interface VectorSourceDescriptor {
+  /** Source category */
+  kind: 'url' | 'file' | 'geojson';
+  /** The source URL, for `kind: 'url'` */
+  url?: string;
+  /** The local file name, for `kind: 'file'` (when known) */
+  fileName?: string;
+}
+
+/**
  * Metadata describing a loaded vector layer.
  */
 export interface VectorLayerInfo {
@@ -246,6 +266,8 @@ export interface VectorLayerInfo {
   id: string;
   /** Display name */
   name: string;
+  /** Where the data came from */
+  source: VectorSourceDescriptor;
   /** Detected source format */
   format: VectorFormat;
   /** Resolved render mode (never 'auto') */
@@ -260,10 +282,14 @@ export interface VectorLayerInfo {
   bbox?: [number, number, number, number];
   /** Whether the layer is currently visible */
   visible: boolean;
+  /** Master opacity (0-1) multiplied into every style opacity */
+  opacity: number;
   /** Whether clicking a feature opens an attribute popup */
   picker: boolean;
   /** How the dataset was ingested ('stream' = queried in place) */
   ingestMode: IngestMode;
+  /** Named layer inside a multi-layer container, when one was selected */
+  sourceLayer?: string;
   /** Map layer id this layer's map layers sit before, when set */
   beforeId?: string;
   /** Current style */

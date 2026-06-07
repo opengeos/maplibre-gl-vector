@@ -10,9 +10,10 @@ import type {
   VectorLayerStyle,
 } from './types';
 import type { EngineProvider } from '../engine/types';
+import type { VectorSourceDescriptor } from './types';
 import { detectSource } from '../formats/detect';
 import { decideRenderMode } from '../render/renderMode';
-import { DEFAULT_STYLE, applyStyle } from '../render/styleBuilder';
+import { DEFAULT_STYLE, applyOpacity, applyStyle, clampOpacity } from '../render/styleBuilder';
 import {
   addGeoJSONSource,
   addGeometryLayers,
@@ -78,6 +79,27 @@ const DEFAULT_MAX_TILE_ZOOM = 16;
  */
 export function tableNameFor(layerId: string): string {
   return `t_${layerId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+}
+
+/**
+ * Describes where a data source came from, so hosts can persist and
+ * later recreate URL-backed layers (files and objects cannot be
+ * recreated from the descriptor).
+ *
+ * @param source - The data source passed to addData
+ * @returns The public source descriptor
+ */
+export function describeSource(source: VectorDataSource): VectorSourceDescriptor {
+  if (typeof source === 'string') {
+    return { kind: 'url', url: source };
+  }
+  if (typeof File !== 'undefined' && source instanceof File) {
+    return { kind: 'file', fileName: source.name };
+  }
+  if (typeof Blob !== 'undefined' && source instanceof Blob) {
+    return { kind: 'file' };
+  }
+  return { kind: 'geojson' };
 }
 
 /**
@@ -169,12 +191,15 @@ export class LayerManager {
       info: {
         id,
         name,
+        source: describeSource(source),
         format: detected.format,
         renderMode: 'geojson',
         geometryType: 'unknown',
         visible,
+        opacity: clampOpacity(options.opacity ?? 1),
         picker: options.picker ?? this._options.enablePicker ?? true,
         ingestMode: options.ingestMode ?? this._options.defaultIngestMode ?? 'table',
+        sourceLayer: options.sourceLayer,
         beforeId: options.beforeId ?? this._options.beforeId,
         style,
         sourceId: sourceIdFor(id),
@@ -274,8 +299,25 @@ export class LayerManager {
   setLayerStyle(id: string, patch: Partial<VectorLayerStyle>): void {
     const record = this._records.get(id);
     if (!record) return;
-    applyStyle(this._map, record.info, patch);
+    applyStyle(this._map, record.info, patch, record.info.opacity);
     record.info.style = { ...record.info.style, ...patch };
+    this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
+   * Sets a layer's master opacity, multiplied into every style opacity
+   * (fill, circle, and line layers alike).
+   *
+   * @param id - The layer id
+   * @param opacity - The new opacity (0-1)
+   */
+  setLayerOpacity(id: string, opacity: number): void {
+    const record = this._records.get(id);
+    if (!record) return;
+    const clamped = clampOpacity(opacity);
+    if (record.info.opacity === clamped) return;
+    record.info.opacity = clamped;
+    applyOpacity(this._map, record.info, record.info.style, clamped);
     this._emit('layerupdated', { layer: { ...record.info } });
   }
 
@@ -470,6 +512,7 @@ export class LayerManager {
       geometryType: summary.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      opacity: record.info.opacity,
       beforeId: record.info.beforeId,
     });
     this._attachPicker(record);
@@ -571,6 +614,7 @@ export class LayerManager {
       geometryType: record.info.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      opacity: record.info.opacity,
       sourceLayer: id,
       beforeId: record.info.beforeId,
     });
@@ -602,6 +646,7 @@ export class LayerManager {
       geometryType: record.info.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      opacity: record.info.opacity,
       beforeId: record.info.beforeId,
     });
     this._attachPicker(record);

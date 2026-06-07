@@ -41,39 +41,56 @@ export function mapLayerId(layerId: string, suffix: LayerSuffix): string {
 }
 
 /**
+ * Clamps a master opacity value to the valid [0, 1] range.
+ *
+ * @param opacity - The requested opacity
+ * @returns The clamped opacity (non-finite values become 1)
+ */
+export function clampOpacity(opacity: number): number {
+  if (!Number.isFinite(opacity)) return 1;
+  return Math.min(1, Math.max(0, opacity));
+}
+
+/**
  * Builds the initial paint object for a given map layer role.
  *
  * @param suffix - The map layer role
  * @param style - The layer style
+ * @param opacity - Master opacity multiplied into every opacity property
  * @returns The MapLibre paint object
  */
 export function buildPaint(
   suffix: LayerSuffix,
   style: VectorLayerStyle,
+  opacity = 1,
 ): Record<string, string | number> {
+  const master = clampOpacity(opacity);
   switch (suffix) {
     case 'fill':
       return {
         'fill-color': style.fillColor,
-        'fill-opacity': style.fillOpacity,
+        'fill-opacity': style.fillOpacity * master,
       };
     case 'outline':
       return {
         'line-color': style.lineColor,
         'line-width': style.lineWidth,
+        'line-opacity': master,
       };
     case 'line':
       return {
         'line-color': style.lineColor,
         'line-width': style.lineWidth,
+        'line-opacity': master,
       };
     case 'circle':
       return {
         'circle-color': style.circleColor,
         'circle-radius': style.circleRadius,
-        'circle-opacity': style.circleOpacity,
+        'circle-opacity': style.circleOpacity * master,
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 1,
+        'circle-stroke-opacity': master,
       };
   }
 }
@@ -82,16 +99,20 @@ export function buildPaint(
  * Maps a style patch to the setPaintProperty operations it implies.
  *
  * Only operations for map layers that exist on the vector layer are
- * returned.
+ * returned. Style opacities are multiplied by the layer's master
+ * opacity so a patch cannot undo a host-applied opacity.
  *
  * @param info - The vector layer
  * @param patch - Partial style update
+ * @param opacity - Master opacity multiplied into opacity properties
  * @returns The list of paint operations to apply
  */
 export function stylePatchToPaintOps(
   info: Pick<VectorLayerInfo, 'id' | 'layerIds'>,
   patch: Partial<VectorLayerStyle>,
+  opacity = 1,
 ): PaintOp[] {
+  const master = clampOpacity(opacity);
   const ops: PaintOp[] = [];
   const has = (suffix: LayerSuffix) => info.layerIds.includes(mapLayerId(info.id, suffix));
   const push = (suffix: LayerSuffix, property: string, value: string | number | undefined) => {
@@ -101,14 +122,46 @@ export function stylePatchToPaintOps(
   };
 
   push('fill', 'fill-color', patch.fillColor);
-  push('fill', 'fill-opacity', patch.fillOpacity);
+  push('fill', 'fill-opacity', patch.fillOpacity === undefined ? undefined : patch.fillOpacity * master);
   push('outline', 'line-color', patch.lineColor);
   push('outline', 'line-width', patch.lineWidth);
   push('line', 'line-color', patch.lineColor);
   push('line', 'line-width', patch.lineWidth);
   push('circle', 'circle-color', patch.circleColor);
   push('circle', 'circle-radius', patch.circleRadius);
-  push('circle', 'circle-opacity', patch.circleOpacity);
+  push('circle', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
+
+  return ops;
+}
+
+/**
+ * Maps a master opacity change to the setPaintProperty operations it
+ * implies, multiplying the style's own opacities where applicable.
+ *
+ * @param info - The vector layer
+ * @param style - The layer's current style
+ * @param opacity - The new master opacity (0-1)
+ * @returns The list of paint operations to apply
+ */
+export function opacityToPaintOps(
+  info: Pick<VectorLayerInfo, 'id' | 'layerIds'>,
+  style: VectorLayerStyle,
+  opacity: number,
+): PaintOp[] {
+  const master = clampOpacity(opacity);
+  const ops: PaintOp[] = [];
+  const has = (suffix: LayerSuffix) => info.layerIds.includes(mapLayerId(info.id, suffix));
+  const push = (suffix: LayerSuffix, property: string, value: string | number) => {
+    if (has(suffix)) {
+      ops.push({ layerId: mapLayerId(info.id, suffix), property, value });
+    }
+  };
+
+  push('fill', 'fill-opacity', style.fillOpacity * master);
+  push('outline', 'line-opacity', master);
+  push('line', 'line-opacity', master);
+  push('circle', 'circle-opacity', style.circleOpacity * master);
+  push('circle', 'circle-stroke-opacity', master);
 
   return ops;
 }
@@ -119,13 +172,34 @@ export function stylePatchToPaintOps(
  * @param map - The MapLibre map
  * @param info - The vector layer
  * @param patch - Partial style update
+ * @param opacity - Master opacity multiplied into opacity properties
  */
 export function applyStyle(
   map: MapLibreMap,
   info: Pick<VectorLayerInfo, 'id' | 'layerIds'>,
   patch: Partial<VectorLayerStyle>,
+  opacity = 1,
 ): void {
-  for (const op of stylePatchToPaintOps(info, patch)) {
+  for (const op of stylePatchToPaintOps(info, patch, opacity)) {
+    map.setPaintProperty(op.layerId, op.property, op.value);
+  }
+}
+
+/**
+ * Applies a master opacity change to the map layers of a vector layer.
+ *
+ * @param map - The MapLibre map
+ * @param info - The vector layer
+ * @param style - The layer's current style
+ * @param opacity - The new master opacity (0-1)
+ */
+export function applyOpacity(
+  map: MapLibreMap,
+  info: Pick<VectorLayerInfo, 'id' | 'layerIds'>,
+  style: VectorLayerStyle,
+  opacity: number,
+): void {
+  for (const op of opacityToPaintOps(info, style, opacity)) {
     map.setPaintProperty(op.layerId, op.property, op.value);
   }
 }

@@ -20,6 +20,7 @@ export type {
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
+  VectorSourceDescriptor,
   VectorState,
 } from './lib/core/types';
 
