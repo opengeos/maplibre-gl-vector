@@ -155,7 +155,17 @@ COPY (
 ) TO 'sorted.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 30000);
 ```
 
-Use your dataset's extent as the Hilbert bounds, and keep row groups small (20k-50k rows) so pruning stays fine-grained. The bbox covering column is carried through unchanged. (GeoPandas alternative: sort by `gdf.hilbert_distance()` and write with `to_parquet(write_covering_bbox=True, row_group_size=30000)`.)
+The example hardcodes global WGS84 bounds because that dataset is global; for regional data, derive the Hilbert bounds from the data itself:
+
+```sql
+COPY (
+  WITH b AS (SELECT ST_Extent(ST_Extent_Agg(geometry)) AS box FROM 'input.parquet')
+  SELECT * FROM 'input.parquet'
+  ORDER BY ST_Hilbert(geometry, (SELECT box FROM b))
+) TO 'sorted.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 30000);
+```
+
+Keep row groups small (20k-50k rows) so pruning stays fine-grained. The bbox covering column is carried through unchanged. (GeoPandas alternative: sort by `gdf.hilbert_distance()` and write with `to_parquet(write_covering_bbox=True, row_group_size=30000)`.)
 
 ### Size thresholds
 
