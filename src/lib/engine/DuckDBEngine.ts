@@ -15,6 +15,7 @@ import {
   exportGeoJSONQuery,
   gdalPath,
   geometryTypesQuery,
+  layersMetaQuery,
   mvtTileQuery,
   prepareTilesSql,
   quoteIdent,
@@ -64,8 +65,6 @@ interface TableMeta {
   propertyColumns: string[];
   /** Whether geom_3857 and the spatial index exist */
   prepared: boolean;
-  /** Registered virtual file name to drop with the table */
-  registeredFile?: string;
   /** Object URL to revoke with the table */
   objectUrl?: string;
 }
@@ -122,6 +121,13 @@ export class DuckDBEngine implements IEngine {
   private _loaded: LoadedDuckDB;
   private _queue = new QueryQueue();
   private _tables = new Map<string, TableMeta>();
+  /**
+   * Registered virtual file per Blob, so a multi-layer file ingested
+   * several times (once per layer) is uploaded into the WASM FS once.
+   * Shared files live until dispose; only per-table object URLs are
+   * released with their table.
+   */
+  private _sharedFiles = new Map<Blob, string>();
 
   /**
    * Creates an engine wrapper over a loaded DuckDB instance.
@@ -153,7 +159,7 @@ export class DuckDBEngine implements IEngine {
       const byteSize =
         typeof Blob !== 'undefined' && source instanceof Blob ? source.size : undefined;
 
-      const path = await this._registerSource(source, tableName, options, meta);
+      const path = await this._registerSource(source, tableName, options);
       try {
         await this._createTable(tableName, path, options);
       } catch (err) {
@@ -255,9 +261,9 @@ export class DuckDBEngine implements IEngine {
     return this._queue.enqueue(async () => {
       const meta = this._tables.get(tableName);
       await this._loaded.conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
-      if (meta?.registeredFile) {
-        await this._loaded.db.dropFile(meta.registeredFile).catch(() => undefined);
-      }
+      // Shared registered files are NOT dropped here: another table
+      // ingested from the same Blob may still read them. They are
+      // released when the engine is disposed.
       if (meta?.objectUrl) {
         URL.revokeObjectURL(meta.objectUrl);
       }
@@ -271,6 +277,10 @@ export class DuckDBEngine implements IEngine {
       if (meta.objectUrl) URL.revokeObjectURL(meta.objectUrl);
     }
     this._tables.clear();
+    for (const name of this._sharedFiles.values()) {
+      await this._loaded.db.dropFile(name).catch(() => undefined);
+    }
+    this._sharedFiles.clear();
     await this._loaded.conn.close().catch(() => undefined);
     await this._loaded.db.terminate().catch(() => undefined);
   }
@@ -281,18 +291,41 @@ export class DuckDBEngine implements IEngine {
    */
   private async _registerSource(
     source: string | File | Blob,
-    tableName: string,
+    registrationName: string,
     options: IngestOptions,
-    meta: TableMeta,
   ): Promise<string> {
     if (typeof source === 'string') return source;
 
+    const shared = this._sharedFiles.get(source);
+    if (shared) return shared;
+
     const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'bin';
-    const name = `${tableName}.${extension.toLowerCase()}`;
+    const name = `${registrationName}.${extension.toLowerCase()}`;
     const buffer = new Uint8Array(await source.arrayBuffer());
     await this._loaded.db.registerFileBuffer(name, buffer);
-    meta.registeredFile = name;
+    this._sharedFiles.set(source, name);
     return name;
+  }
+
+  /** @inheritdoc */
+  listLayers(
+    source: string | File | Blob,
+    registrationName: string,
+    options: IngestOptions,
+  ): Promise<string[]> {
+    return this._queue.enqueue(async () => {
+      try {
+        const path = await this._registerSource(source, registrationName, options);
+        const result = await this._loaded.conn.query(
+          layersMetaQuery(gdalPath(options.format, path)),
+        );
+        return result.toArray().map((row) => String(row.name));
+      } catch {
+        // Not a GDAL-readable container (or meta unsupported);
+        // treat as single-layer.
+        return [];
+      }
+    });
   }
 
   /**

@@ -63,6 +63,7 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
       geometryType: 'polygon' as const,
       byteSize: 1234,
     })),
+    listLayers: vi.fn(async () => []),
     exportGeoJSON: vi.fn(async () => POLYGON_FC),
     prepareTiles: vi.fn(async () => undefined),
     getTile: vi.fn(async () => new Uint8Array(0)),
@@ -187,6 +188,54 @@ describe('LayerManager engine path', () => {
     expect(hasTileProvider(providerKey)).toBe(false);
     // dropTable is fire-and-forget through the async engine provider
     await vi.waitFor(() => expect(engine.dropTable).toHaveBeenCalledWith('t_big'));
+  });
+
+  it('expands multi-layer containers into one vector layer per source layer', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager, map, emit } = createManager({}, engine);
+
+    const info = await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+
+    expect(engine.listLayers).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city',
+      expect.objectContaining({ format: 'geopackage' }),
+    );
+    expect(engine.ingest).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city_roads',
+      expect.objectContaining({ sourceLayer: 'roads' }),
+    );
+    expect(engine.ingest).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city_buildings',
+      expect.objectContaining({ sourceLayer: 'buildings' }),
+    );
+    expect(manager.getLayers().map((l) => l.id).sort()).toEqual([
+      'city-buildings',
+      'city-roads',
+    ]);
+    expect(manager.getLayer('city-roads')?.name).toBe('roads');
+    expect(info.id).toBe('city-roads');
+    // One combined fitBounds for the whole container
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(
+      'loading',
+      expect.objectContaining({ message: expect.stringContaining('2 layers') }),
+    );
+  });
+
+  it('skips expansion when a sourceLayer is requested', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'one', sourceLayer: 'roads' });
+    expect(engine.listLayers).not.toHaveBeenCalled();
+    expect(manager.getLayers()).toHaveLength(1);
   });
 
   it('honors the per-layer tiles override below thresholds', async () => {

@@ -266,6 +266,20 @@ export function tileFeaturesQuery(
 }
 
 /**
+ * SQL listing the named layers inside a multi-layer container
+ * (GeoPackage tables, KML folders, ...) via ST_Read_Meta.
+ *
+ * @param path - Registered file name or URL
+ * @returns The query text
+ */
+export function layersMetaQuery(path: string): string {
+  return (
+    `SELECT layer.name AS name FROM ` +
+    `(SELECT unnest(layers) AS layer FROM ST_Read_Meta(${quoteLiteral(path)}))`
+  );
+}
+
+/**
  * SQL probing whether the loaded spatial build supports ST_AsMVT.
  *
  * @returns The probe query text

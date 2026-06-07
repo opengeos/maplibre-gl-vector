@@ -139,6 +139,11 @@ export class LayerManager {
       throw new Error(`Layer "${id}" already exists`);
     }
 
+    // Multi-layer containers (GeoPackage tables, KML folders, ...)
+    // expand into one vector layer per source layer.
+    const expanded = await this._maybeExpandLayers(source, options, detected, id);
+    if (expanded) return expanded;
+
     const name = options.name ?? detected.name;
     const style: VectorLayerStyle = { ...DEFAULT_STYLE, ...options.style };
     const visible = options.visible ?? true;
@@ -344,6 +349,70 @@ export class LayerManager {
     this._records.clear();
     this._popup?.remove();
     this._popup = undefined;
+  }
+
+  /**
+   * Expands a multi-layer container into one vector layer per source
+   * layer, when the source is engine-readable, no sourceLayer was
+   * requested, and the container reports more than one layer.
+   *
+   * @returns The first created layer's info, or null when the source
+   *   is single-layer (callers continue with the normal flow)
+   */
+  private async _maybeExpandLayers(
+    source: VectorDataSource,
+    options: VectorLayerOptions,
+    detected: { format: VectorLayerInfo['format']; name: string },
+    id: string,
+  ): Promise<VectorLayerInfo | null> {
+    // Single-layer by construction: native readers and the pure-JS
+    // GeoJSON path. Explicit sourceLayer means the caller chose.
+    const singleLayerFormats = ['geojson', 'geoparquet', 'csv'];
+    if (options.sourceLayer || singleLayerFormats.includes(detected.format)) return null;
+
+    const engine = await this._getEngine();
+    const engineSource = await this._engineSource(source);
+    const layerNames = await engine.listLayers(engineSource, tableNameFor(id), {
+      format: detected.format,
+      fileName:
+        typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+    });
+    if (layerNames.length <= 1) return null;
+
+    this._emit('loading', {
+      message: `Loading ${layerNames.length} layers from ${options.name ?? detected.name}...`,
+    });
+
+    const infos: VectorLayerInfo[] = [];
+    for (const layerName of layerNames) {
+      const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      infos.push(
+        await this.addData(source, {
+          ...options,
+          id: subId,
+          name: layerName,
+          sourceLayer: layerName,
+          fitBounds: false,
+        }),
+      );
+    }
+
+    // Zoom once to the combined extent of all created layers.
+    if (options.fitBounds ?? true) {
+      const boxes = infos.map((info) => info.bbox).filter(Boolean) as Array<
+        [number, number, number, number]
+      >;
+      if (boxes.length > 0) {
+        this._fitBounds([
+          Math.min(...boxes.map((b) => b[0])),
+          Math.min(...boxes.map((b) => b[1])),
+          Math.max(...boxes.map((b) => b[2])),
+          Math.max(...boxes.map((b) => b[3])),
+        ]);
+      }
+    }
+
+    return infos[0];
   }
 
   /**

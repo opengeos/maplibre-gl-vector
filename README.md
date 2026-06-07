@@ -154,7 +154,19 @@ await control.addData(url, { renderMode: "tiles" });
 | CSV | `.csv`, `.tsv` | `read_csv` + WKT or lon/lat columns | ✅ | ✅ |
 | Anything GDAL reads | `.kml`, `.gml`, `.tab`, `.dxf`, ... | `ST_Read` (GDAL) | ✅ | ✅ |
 
-Extensions without a dedicated reader are passed straight to `ST_Read`, so any vector format the spatial extension's GDAL build supports will load. Remote URLs must be served with CORS enabled. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
+Extensions without a dedicated reader are passed straight to `ST_Read`, so any vector format the spatial extension's GDAL build supports will load. Remote URLs must be served with CORS enabled.
+
+### Multi-layer datasets
+
+Containers that hold several layers (a GeoPackage with multiple tables, KML folders, GML/DXF layers, ...) are expanded automatically: the control enumerates the layers with `ST_Read_Meta` and adds **one vector layer per source layer**, each with its own panel entry, visibility toggle, and style. The map zooms once to the combined extent, and the underlying file is registered with DuckDB only once.
+
+To load just one layer from a container, pass `sourceLayer`:
+
+```typescript
+await control.addData("city.gpkg", { sourceLayer: "roads" });
+```
+
+Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
 
 ## API
 
@@ -198,7 +210,7 @@ Extensions without a dedicated reader are passed straight to `ST_Read`, so any v
 | `visible` | `boolean` | `true` | Initial visibility |
 | `fitBounds` | `boolean` | `true` | Zoom to the layer after loading |
 | `style` | `Partial<VectorLayerStyle>` | defaults | Initial style overrides |
-| `sourceLayer` | `string` | first layer | Layer name inside multi-layer containers (e.g. GeoPackage) |
+| `sourceLayer` | `string` | all layers | Load only this layer from a multi-layer container (default expands every layer) |
 | `format` | `VectorFormat` | detected | Explicit format override |
 | `beforeId` | `string` | control option | Map layer id this layer is inserted before |
 | `picker` | `boolean` | control option | Attribute popup on feature click |

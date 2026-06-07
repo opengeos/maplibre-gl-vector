@@ -48,6 +48,21 @@ export interface IEngine {
   ingest(source: string | File | Blob, tableName: string, options: IngestOptions): Promise<IngestSummary>;
 
   /**
+   * Lists the named layers inside a multi-layer container (GeoPackage
+   * tables, KML folders, ...).
+   *
+   * @param source - URL string, File, or Blob
+   * @param registrationName - Virtual file name used when registering
+   * @param options - Ingest options (format, fileName)
+   * @returns Layer names; empty for single-layer or unreadable sources
+   */
+  listLayers(
+    source: string | File | Blob,
+    registrationName: string,
+    options: IngestOptions,
+  ): Promise<string[]>;
+
+  /**
    * Exports a table to a GeoJSON FeatureCollection (EPSG:4326).
    *
    * @param tableName - The table to export
