@@ -1,6 +1,6 @@
 import type { VectorLayerInfo, VectorLayerStyle } from '../core/types';
 import { el, svgIcon, ICONS } from './dom';
-import { createStyleEditor } from './styleEditor';
+import { createStyleEditor, type StyleEditorContext } from './styleEditor';
 
 /**
  * Callbacks for layer list item interactions.
@@ -11,6 +11,8 @@ export interface LayerItemCallbacks {
   onRemove: (id: string) => void;
   onStyle: (id: string, patch: Partial<VectorLayerStyle>) => void;
   onRenderMode: (id: string, mode: 'auto' | 'geojson' | 'tiles') => void;
+  onPicker: (id: string, enabled: boolean) => void;
+  onBeforeId: (id: string, beforeId: string | undefined) => void;
   /** Toggles the expanded state of the style editor */
   onToggleEditor: (id: string) => void;
 }
@@ -44,6 +46,7 @@ function formatCount(count: number): string {
 export function createLayerListItem(
   layer: VectorLayerInfo,
   expanded: boolean,
+  context: StyleEditorContext,
   callbacks: LayerItemCallbacks,
 ): HTMLElement {
   const item = el('div', 'vector-control-layer-item');
@@ -68,6 +71,7 @@ export function createLayerListItem(
   const parts: string[] = [layer.format];
   if (layer.featureCount !== undefined) parts.push(`${formatCount(layer.featureCount)} ft`);
   parts.push(layer.renderMode === 'tiles' ? 'tiles' : 'geojson');
+  if (layer.ingestMode === 'stream') parts.push('stream');
   meta.textContent = parts.join(' · ');
   nameWrap.appendChild(name);
   nameWrap.appendChild(meta);
@@ -87,9 +91,11 @@ export function createLayerListItem(
 
   if (expanded) {
     item.appendChild(
-      createStyleEditor(layer, {
+      createStyleEditor(layer, context, {
         onStyle: (patch) => callbacks.onStyle(layer.id, patch),
         onRenderMode: (mode) => callbacks.onRenderMode(layer.id, mode),
+        onPicker: (enabled) => callbacks.onPicker(layer.id, enabled),
+        onBeforeId: (beforeId) => callbacks.onBeforeId(layer.id, beforeId),
       }),
     );
   }

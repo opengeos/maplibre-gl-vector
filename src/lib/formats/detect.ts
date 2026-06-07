@@ -42,13 +42,18 @@ export function fileNameFromUrl(url: string): string {
 /**
  * Detects the vector format from a file name based on its extension.
  *
+ * Extensions without a dedicated reader (kml, gml, tab, dxf, ...) are
+ * returned as-is and handled by the GDAL-backed ST_Read, so every
+ * format the spatial extension supports can load.
+ *
  * @param fileName - File name or URL path
- * @returns The detected format, or 'unknown' if unrecognized
+ * @returns The detected format, or 'unknown' when there is no extension
  */
 export function formatFromFileName(fileName: string): VectorFormat {
   const match = /\.([a-z0-9]+)$/i.exec(fileName.trim());
   if (!match) return 'unknown';
-  return EXTENSION_FORMATS[match[1].toLowerCase()] ?? 'unknown';
+  const extension = match[1].toLowerCase();
+  return EXTENSION_FORMATS[extension] ?? extension;
 }
 
 /**
@@ -62,10 +67,37 @@ export function baseName(fileName: string): string {
 }
 
 /**
+ * Maps data: URL MIME types to vector formats.
+ */
+const MIME_FORMATS: Array<[RegExp, VectorFormat]> = [
+  [/json/, 'geojson'],
+  [/csv|tab-separated/, 'csv'],
+  [/parquet/, 'geoparquet'],
+];
+
+/**
+ * Detects the format of a data: URL from its MIME type.
+ *
+ * Bundlers (e.g. Vite) inline small assets as base64 data URLs, so a
+ * sample.geojson import can reach addData as `data:application/geo+json;...`.
+ *
+ * @param url - The data: URL
+ * @returns The detected format, or 'unknown'
+ */
+export function formatFromDataUrl(url: string): VectorFormat {
+  const mime = url.slice('data:'.length).split(/[;,]/)[0].toLowerCase();
+  for (const [pattern, format] of MIME_FORMATS) {
+    if (pattern.test(mime)) return format;
+  }
+  return 'unknown';
+}
+
+/**
  * Detects the format and display name of a data source.
  *
  * GeoJSON objects are recognized directly; files and URLs are detected
- * from their extension. An explicit format always wins.
+ * from their extension (or MIME type for data: URLs). An explicit
+ * format always wins.
  *
  * @param source - URL string, File/Blob, or GeoJSON object
  * @param explicitFormat - Optional format override
@@ -76,6 +108,9 @@ export function detectSource(
   explicitFormat?: VectorFormat,
 ): DetectedSource {
   if (typeof source === 'string') {
+    if (source.startsWith('data:')) {
+      return { format: explicitFormat ?? formatFromDataUrl(source), name: 'Untitled' };
+    }
     const name = fileNameFromUrl(source);
     return {
       format: explicitFormat ?? formatFromFileName(name),

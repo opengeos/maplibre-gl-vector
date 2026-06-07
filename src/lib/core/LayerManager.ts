@@ -1,4 +1,4 @@
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import type {
   RenderMode,
@@ -24,6 +24,7 @@ import {
 import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../tiles/protocol';
 import { summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
 import { generateId } from '../utils/helpers';
+import { getMaplibre } from '../utils/maplibre';
 
 /**
  * Emits a control event with optional layer/error context.
@@ -55,6 +56,15 @@ interface LayerRecord {
    * from the public layer id, which can repeat across controls.
    */
   providerKey?: string;
+  /** Per-map-layer picker handlers, for cleanup */
+  pickerHandlers?: PickerHandler[];
+}
+
+interface PickerHandler {
+  layerId: string;
+  click: (e: MapLayerMouseEvent) => void;
+  enter: () => void;
+  leave: () => void;
 }
 
 const DEFAULT_MAX_TILE_ZOOM = 16;
@@ -81,6 +91,10 @@ export class LayerManager {
   private _emit: LayerManagerEmitter;
   private _getEngine: EngineProvider;
   private _records = new Map<string, LayerRecord>();
+  private _popup?: { remove(): void };
+  private _popupOwnerId?: string;
+  private _pendingTiles = 0;
+  private _tileStatusTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Creates a layer manager.
@@ -128,6 +142,11 @@ export class LayerManager {
       throw new Error(`Layer "${id}" already exists`);
     }
 
+    // Multi-layer containers (GeoPackage tables, KML folders, ...)
+    // expand into one vector layer per source layer.
+    const expanded = await this._maybeExpandLayers(source, options, detected, id);
+    if (expanded) return expanded;
+
     const name = options.name ?? detected.name;
     const style: VectorLayerStyle = { ...DEFAULT_STYLE, ...options.style };
     const visible = options.visible ?? true;
@@ -140,6 +159,9 @@ export class LayerManager {
         renderMode: 'geojson',
         geometryType: 'unknown',
         visible,
+        picker: options.picker ?? this._options.enablePicker ?? true,
+        ingestMode: options.ingestMode ?? this._options.defaultIngestMode ?? 'table',
+        beforeId: options.beforeId ?? this._options.beforeId,
         style,
         sourceId: sourceIdFor(id),
         layerIds: [],
@@ -180,6 +202,7 @@ export class LayerManager {
     const record = this._records.get(id);
     if (!record) return;
 
+    this._detachPicker(record);
     removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
     if (record.providerKey) unregisterTileProvider(record.providerKey);
     if (record.tableName) {
@@ -243,6 +266,40 @@ export class LayerManager {
   }
 
   /**
+   * Enables or disables the attribute popup for a layer.
+   *
+   * @param id - The layer id
+   * @param enabled - Whether clicking a feature opens a popup
+   */
+  setLayerPicker(id: string, enabled: boolean): void {
+    const record = this._records.get(id);
+    if (!record || record.info.picker === enabled) return;
+    record.info.picker = enabled;
+    this._detachPicker(record);
+    if (enabled) this._attachPicker(record);
+    this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
+   * Moves a layer's map layers before another map layer (or to the top
+   * when omitted).
+   *
+   * @param id - The layer id
+   * @param beforeId - Target map layer id, or undefined for the top
+   */
+  setLayerBeforeId(id: string, beforeId?: string): void {
+    const record = this._records.get(id);
+    if (!record) return;
+    const target = beforeId && this._map.getLayer(beforeId) ? beforeId : undefined;
+    // Moving in creation order keeps the group's internal stacking.
+    for (const layerId of record.info.layerIds) {
+      this._map.moveLayer(layerId, target);
+    }
+    record.info.beforeId = target;
+    this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
    * Switches a layer between GeoJSON and dynamic tile rendering.
    *
    * @param id - The layer id
@@ -264,6 +321,7 @@ export class LayerManager {
     this._emit('loading', { message: `Switching ${record.info.name} to ${target}...` });
 
     try {
+      this._detachPicker(record);
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
       if (record.providerKey) unregisterTileProvider(record.providerKey);
       record.info.layerIds = [];
@@ -288,10 +346,81 @@ export class LayerManager {
    */
   dispose(): void {
     for (const record of this._records.values()) {
+      this._detachPicker(record);
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
       if (record.providerKey) unregisterTileProvider(record.providerKey);
     }
     this._records.clear();
+    this._popup?.remove();
+    this._popup = undefined;
+    if (this._tileStatusTimer) {
+      clearTimeout(this._tileStatusTimer);
+      this._tileStatusTimer = undefined;
+    }
+  }
+
+  /**
+   * Expands a multi-layer container into one vector layer per source
+   * layer, when the source is engine-readable, no sourceLayer was
+   * requested, and the container reports more than one layer.
+   *
+   * @returns The first created layer's info, or null when the source
+   *   is single-layer (callers continue with the normal flow)
+   */
+  private async _maybeExpandLayers(
+    source: VectorDataSource,
+    options: VectorLayerOptions,
+    detected: { format: VectorLayerInfo['format']; name: string },
+    id: string,
+  ): Promise<VectorLayerInfo | null> {
+    // Single-layer by construction: native readers and the pure-JS
+    // GeoJSON path. Explicit sourceLayer means the caller chose.
+    const singleLayerFormats = ['geojson', 'geoparquet', 'csv'];
+    if (options.sourceLayer || singleLayerFormats.includes(detected.format)) return null;
+
+    const engine = await this._getEngine();
+    const engineSource = await this._engineSource(source);
+    const layerNames = await engine.listLayers(engineSource, tableNameFor(id), {
+      format: detected.format,
+      fileName:
+        typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+    });
+    if (layerNames.length <= 1) return null;
+
+    this._emit('loading', {
+      message: `Loading ${layerNames.length} layers from ${options.name ?? detected.name}...`,
+    });
+
+    const infos: VectorLayerInfo[] = [];
+    for (const layerName of layerNames) {
+      const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      infos.push(
+        await this.addData(source, {
+          ...options,
+          id: subId,
+          name: layerName,
+          sourceLayer: layerName,
+          fitBounds: false,
+        }),
+      );
+    }
+
+    // Zoom once to the combined extent of all created layers.
+    if (options.fitBounds ?? true) {
+      const boxes = infos.map((info) => info.bbox).filter(Boolean) as Array<
+        [number, number, number, number]
+      >;
+      if (boxes.length > 0) {
+        this._fitBounds([
+          Math.min(...boxes.map((b) => b[0])),
+          Math.min(...boxes.map((b) => b[1])),
+          Math.max(...boxes.map((b) => b[2])),
+          Math.max(...boxes.map((b) => b[3])),
+        ]);
+      }
+    }
+
+    return infos[0];
   }
 
   /**
@@ -327,7 +456,9 @@ export class LayerManager {
       geometryType: summary.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      beforeId: record.info.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -365,12 +496,22 @@ export class LayerManager {
     const engine = await this._getEngine();
     const tableName = tableNameFor(record.info.id);
     const source = await this._engineSource(record.source);
+    this._emit('loading', {
+      message:
+        record.info.ingestMode === 'stream'
+          ? `Opening ${record.info.name} (streaming, reading metadata)...`
+          : `Reading ${record.info.name} into DuckDB...`,
+    });
     const summary = await engine.ingest(source, tableName, {
       format: record.info.format,
       sourceLayer: record.sourceLayer,
       fileName: record.fileName ?? this._defaultFileName(record),
+      mode: record.info.ingestMode,
     });
     record.tableName = summary.tableName;
+    // The engine falls back to a table for formats streaming
+    // does not apply to.
+    record.info.ingestMode = summary.streamed ? 'stream' : 'table';
     return summary;
   }
 
@@ -388,6 +529,11 @@ export class LayerManager {
         summary.geometryType !== 'unknown' ? summary.geometryType : record.info.geometryType;
     }
     const tableName = record.tableName!;
+    if (record.info.ingestMode !== 'stream') {
+      this._emit('loading', {
+        message: `Indexing ${record.info.name} for tiles (reprojecting + R-Tree)...`,
+      });
+    }
     await engine.prepareTiles(tableName);
 
     const id = record.info.id;
@@ -396,7 +542,7 @@ export class LayerManager {
     const providerKey = record.providerKey ?? generateId(`${id}-tiles`);
     record.providerKey = providerKey;
     await registerTileProvider(providerKey, (z, x, y, signal) =>
-      engine.getTile(tableName, id, z, x, y, signal),
+      this._trackTileActivity(engine.getTile(tableName, id, z, x, y, signal)),
     );
 
     record.info.renderMode = 'tiles';
@@ -412,7 +558,9 @@ export class LayerManager {
       style: record.info.style,
       visible: record.info.visible,
       sourceLayer: id,
+      beforeId: record.info.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -423,6 +571,7 @@ export class LayerManager {
     let collection: FeatureCollection;
     if (record.tableName) {
       const engine = await this._getEngine();
+      this._emit('loading', { message: `Converting ${record.info.name} to GeoJSON...` });
       collection = await engine.exportGeoJSON(record.tableName);
     } else {
       collection = (await this._resolveGeoJSON(record.source)).collection;
@@ -439,7 +588,9 @@ export class LayerManager {
       geometryType: record.info.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      beforeId: record.info.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -467,20 +618,166 @@ export class LayerManager {
 
   /**
    * Converts a data source to something the engine can register
-   * (GeoJSON objects become Blobs).
+   * (GeoJSON objects and data: URLs become Blobs - DuckDB/GDAL cannot
+   * fetch data: URLs).
    */
   private async _engineSource(source: VectorDataSource): Promise<string | File | Blob> {
-    if (typeof source === 'string') return source;
+    if (typeof source === 'string') {
+      if (source.startsWith('data:')) {
+        return (await fetch(source)).blob();
+      }
+      return source;
+    }
     if (typeof Blob !== 'undefined' && source instanceof Blob) return source;
     return new Blob([JSON.stringify(source)], { type: 'application/geo+json' });
   }
 
   /**
-   * Picks a registration file name for sources without one.
+   * Picks a registration file name for sources without one, using an
+   * extension matching the format so readers can sniff the type.
    */
   private _defaultFileName(record: LayerRecord): string {
-    const ext = record.info.format === 'geojson' ? 'geojson' : 'bin';
+    const extensions: Record<string, string> = {
+      geojson: 'geojson',
+      geoparquet: 'parquet',
+      geopackage: 'gpkg',
+      shapefile: 'zip',
+      flatgeobuf: 'fgb',
+      csv: 'csv',
+    };
+    const format = record.info.format;
+    const ext = extensions[format] ?? (format !== 'unknown' ? format : 'bin');
     return `${tableNameFor(record.info.id)}.${ext}`;
+  }
+
+  /**
+   * Attaches click-to-inspect handlers to a layer's map layers,
+   * opening a popup with the clicked feature's attributes.
+   */
+  private _attachPicker(record: LayerRecord): void {
+    if (!record.info.picker) return;
+    record.pickerHandlers = record.info.layerIds.map((layerId) => {
+      const click = (e: MapLayerMouseEvent) => {
+        const feature = e.features?.[0];
+        if (feature) {
+          void this._showPopup(record.info, e.lngLat, feature.properties ?? {});
+        }
+      };
+      const enter = () => {
+        this._map.getCanvas().style.cursor = 'pointer';
+      };
+      const leave = () => {
+        this._map.getCanvas().style.cursor = '';
+      };
+      this._map.on('click', layerId, click);
+      this._map.on('mouseenter', layerId, enter);
+      this._map.on('mouseleave', layerId, leave);
+      return { layerId, click, enter, leave };
+    });
+  }
+
+  /**
+   * Removes the picker handlers of a layer.
+   */
+  private _detachPicker(record: LayerRecord): void {
+    for (const handler of record.pickerHandlers ?? []) {
+      this._map.off('click', handler.layerId, handler.click);
+      this._map.off('mouseenter', handler.layerId, handler.enter);
+      this._map.off('mouseleave', handler.layerId, handler.leave);
+    }
+    record.pickerHandlers = undefined;
+    // Close a popup owned by this layer so stale attributes do not
+    // linger after removal or a render-mode switch.
+    if (this._popupOwnerId === record.info.id) {
+      this._popup?.remove();
+      this._popup = undefined;
+      this._popupOwnerId = undefined;
+    }
+  }
+
+  /**
+   * Opens (or replaces) the attribute popup for a clicked feature.
+   * Content is built with textContent, so attribute values are inert.
+   */
+  private async _showPopup(
+    info: Pick<VectorLayerInfo, 'id' | 'name'>,
+    lngLat: { lng: number; lat: number },
+    properties: Record<string, unknown>,
+  ): Promise<void> {
+    const container = document.createElement('div');
+    container.className = 'vector-control-popup';
+
+    const title = document.createElement('div');
+    title.className = 'vector-control-popup-title';
+    title.textContent = info.name;
+    container.appendChild(title);
+
+    const entries = Object.entries(properties);
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'vector-control-popup-empty';
+      empty.textContent = 'No attributes';
+      container.appendChild(empty);
+    } else {
+      const table = document.createElement('table');
+      table.className = 'vector-control-popup-table';
+      for (const [key, value] of entries) {
+        const row = table.insertRow();
+        const keyCell = row.insertCell();
+        keyCell.className = 'vector-control-popup-key';
+        keyCell.textContent = key;
+        const valueCell = row.insertCell();
+        valueCell.textContent = value === null || value === undefined ? '' : String(value);
+      }
+      container.appendChild(table);
+    }
+
+    const maplibre = await getMaplibre();
+    this._popup?.remove();
+    const popup = new maplibre.Popup({ closeButton: true, maxWidth: '280px' });
+    popup.setLngLat([lngLat.lng, lngLat.lat]);
+    popup.setDOMContent(container);
+    popup.addTo(this._map);
+    this._popup = popup;
+    this._popupOwnerId = info.id;
+  }
+
+  /**
+   * Surfaces tile generation progress through 'loading' events: shows
+   * a pending count while tile queries run and clears the status
+   * shortly after the queue drains (the delay avoids flicker between
+   * consecutive tiles).
+   */
+  private _trackTileActivity(task: Promise<Uint8Array>): Promise<Uint8Array> {
+    this._pendingTiles += 1;
+    if (this._tileStatusTimer) {
+      clearTimeout(this._tileStatusTimer);
+      this._tileStatusTimer = undefined;
+    }
+    this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+
+    const settle = () => {
+      this._pendingTiles -= 1;
+      if (this._pendingTiles === 0) {
+        this._tileStatusTimer = setTimeout(() => {
+          this._tileStatusTimer = undefined;
+          this._emit('loading', { message: '' });
+        }, 400);
+      } else {
+        this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+      }
+    };
+
+    return task.then(
+      (value) => {
+        settle();
+        return value;
+      },
+      (err) => {
+        settle();
+        throw err;
+      },
+    );
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {

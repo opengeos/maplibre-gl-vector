@@ -8,17 +8,23 @@ import { encodeTileFromFeatures, tileBbox4326 } from '../tiles/mvtFallback';
 import {
   LON_LAT_COLUMN_PAIRS,
   WKT_COLUMN_NAMES,
+  bboxSummaryQuery,
   columnsQueryFromDescribe,
   createTableFromLonLatSql,
   createTableFromWktSql,
   createTableSql,
+  createViewSql,
   exportGeoJSONQuery,
   gdalPath,
   geometryTypesQuery,
+  isBboxCoveringColumn,
+  layersMetaQuery,
   mvtTileQuery,
+  mvtTileStreamQuery,
   prepareTilesSql,
   quoteIdent,
   readerFor,
+  sampledGeometryTypesQuery,
   summaryQuery,
   tileFeaturesQuery,
 } from './sql';
@@ -64,8 +70,10 @@ interface TableMeta {
   propertyColumns: string[];
   /** Whether geom_3857 and the spatial index exist */
   prepared: boolean;
-  /** Registered virtual file name to drop with the table */
-  registeredFile?: string;
+  /** Whether this is a streaming view rather than a table */
+  streamed: boolean;
+  /** GeoParquet bbox covering column, when present */
+  bboxColumn?: string;
   /** Object URL to revoke with the table */
   objectUrl?: string;
 }
@@ -122,6 +130,13 @@ export class DuckDBEngine implements IEngine {
   private _loaded: LoadedDuckDB;
   private _queue = new QueryQueue();
   private _tables = new Map<string, TableMeta>();
+  /**
+   * Registered virtual file per Blob, so a multi-layer file ingested
+   * several times (once per layer) is uploaded into the WASM FS once.
+   * Shared files live until dispose; only per-table object URLs are
+   * released with their table.
+   */
+  private _sharedFiles = new Map<Blob, string>();
 
   /**
    * Creates an engine wrapper over a loaded DuckDB instance.
@@ -149,28 +164,36 @@ export class DuckDBEngine implements IEngine {
     options: IngestOptions,
   ): Promise<IngestSummary> {
     return this._queue.enqueue(async () => {
-      const meta: TableMeta = { propertyColumns: [], prepared: false };
+      const streamed = options.mode === 'stream' && options.format === 'geoparquet';
+      const meta: TableMeta = { propertyColumns: [], prepared: false, streamed };
       const byteSize =
         typeof Blob !== 'undefined' && source instanceof Blob ? source.size : undefined;
 
-      const path = await this._registerSource(source, tableName, options, meta);
-      try {
-        await this._createTable(tableName, path, options);
-      } catch (err) {
-        // ST_Read on registered buffers fails on some builds; retry local
-        // files through an object URL the worker can fetch.
-        const retried = await this._retryWithObjectUrl(err, source, tableName, options, meta);
-        if (!retried) throw err;
+      const path = await this._registerSource(source, tableName, options);
+      if (streamed) {
+        await this._createStreamView(tableName, path, options);
+      } else {
+        try {
+          await this._createTable(tableName, path, options);
+        } catch (err) {
+          // ST_Read on registered buffers fails on some builds; retry local
+          // files through an object URL the worker can fetch.
+          const retried = await this._retryWithObjectUrl(err, source, tableName, options, meta);
+          if (!retried) throw err;
+        }
       }
 
       const columns = await this._describeTable(tableName);
+      meta.bboxColumn = columns.find((c) => isBboxCoveringColumn(c.name, c.type))?.name;
       meta.propertyColumns = columns
-        .filter((c) => c.type !== 'GEOMETRY' && c.name !== 'geom_3857')
+        .filter(
+          (c) => c.type !== 'GEOMETRY' && c.name !== 'geom_3857' && c.name !== meta.bboxColumn,
+        )
         .map((c) => c.name);
       this._tables.set(tableName, meta);
 
-      const summary = await this._summarize(tableName);
-      return { ...summary, tableName, byteSize };
+      const summary = await this._summarize(tableName, meta);
+      return { ...summary, tableName, byteSize, streamed };
     });
   }
 
@@ -199,6 +222,13 @@ export class DuckDBEngine implements IEngine {
       const meta = this._requireTable(tableName);
       if (meta.prepared) return;
 
+      // Streamed sources are queried in place per tile; there is no
+      // table to transform or index.
+      if (meta.streamed) {
+        meta.prepared = true;
+        return;
+      }
+
       const statements = prepareTilesSql(tableName);
       for (const statement of statements.transform) {
         await this._loaded.conn.query(statement);
@@ -225,9 +255,19 @@ export class DuckDBEngine implements IEngine {
       const meta = this._requireTable(tableName);
 
       if (this._loaded.supportsMVT) {
-        const result = await this._loaded.conn.query(
-          mvtTileQuery(tableName, layerName, z, x, y, meta.propertyColumns),
-        );
+        const query = meta.streamed
+          ? mvtTileStreamQuery(
+              tableName,
+              layerName,
+              z,
+              x,
+              y,
+              tileBbox4326(z, x, y, 64 / 4096),
+              meta.propertyColumns,
+              meta.bboxColumn,
+            )
+          : mvtTileQuery(tableName, layerName, z, x, y, meta.propertyColumns);
+        const result = await this._loaded.conn.query(query);
         const value = result.toArray()[0]?.tile as Uint8Array | null | undefined;
         // Copy out of WASM-backed memory before handing to MapLibre.
         return value ? new Uint8Array(value) : new Uint8Array(0);
@@ -254,10 +294,11 @@ export class DuckDBEngine implements IEngine {
   dropTable(tableName: string): Promise<void> {
     return this._queue.enqueue(async () => {
       const meta = this._tables.get(tableName);
-      await this._loaded.conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
-      if (meta?.registeredFile) {
-        await this._loaded.db.dropFile(meta.registeredFile).catch(() => undefined);
-      }
+      const kind = meta?.streamed ? 'VIEW' : 'TABLE';
+      await this._loaded.conn.query(`DROP ${kind} IF EXISTS ${quoteIdent(tableName)}`);
+      // Shared registered files are NOT dropped here: another table
+      // ingested from the same Blob may still read them. They are
+      // released when the engine is disposed.
       if (meta?.objectUrl) {
         URL.revokeObjectURL(meta.objectUrl);
       }
@@ -271,6 +312,10 @@ export class DuckDBEngine implements IEngine {
       if (meta.objectUrl) URL.revokeObjectURL(meta.objectUrl);
     }
     this._tables.clear();
+    for (const name of this._sharedFiles.values()) {
+      await this._loaded.db.dropFile(name).catch(() => undefined);
+    }
+    this._sharedFiles.clear();
     await this._loaded.conn.close().catch(() => undefined);
     await this._loaded.db.terminate().catch(() => undefined);
   }
@@ -281,18 +326,41 @@ export class DuckDBEngine implements IEngine {
    */
   private async _registerSource(
     source: string | File | Blob,
-    tableName: string,
+    registrationName: string,
     options: IngestOptions,
-    meta: TableMeta,
   ): Promise<string> {
     if (typeof source === 'string') return source;
 
+    const shared = this._sharedFiles.get(source);
+    if (shared) return shared;
+
     const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'bin';
-    const name = `${tableName}.${extension.toLowerCase()}`;
+    const name = `${registrationName}.${extension.toLowerCase()}`;
     const buffer = new Uint8Array(await source.arrayBuffer());
     await this._loaded.db.registerFileBuffer(name, buffer);
-    meta.registeredFile = name;
+    this._sharedFiles.set(source, name);
     return name;
+  }
+
+  /** @inheritdoc */
+  listLayers(
+    source: string | File | Blob,
+    registrationName: string,
+    options: IngestOptions,
+  ): Promise<string[]> {
+    return this._queue.enqueue(async () => {
+      try {
+        const path = await this._registerSource(source, registrationName, options);
+        const result = await this._loaded.conn.query(
+          layersMetaQuery(gdalPath(options.format, path)),
+        );
+        return result.toArray().map((row) => String(row.name));
+      } catch {
+        // Not a GDAL-readable container (or meta unsupported);
+        // treat as single-layer.
+        return [];
+      }
+    });
   }
 
   /**
@@ -337,6 +405,24 @@ export class DuckDBEngine implements IEngine {
     }
 
     throw new Error(`No geometry column found in source (format: ${options.format})`);
+  }
+
+  /**
+   * Creates a streaming view over a GeoParquet reader instead of
+   * materializing the data.
+   */
+  private async _createStreamView(
+    tableName: string,
+    path: string,
+    options: IngestOptions,
+  ): Promise<void> {
+    const reader = readerFor(options.format, path, options.sourceLayer);
+    const columns = await this._describeReader(reader);
+    const geometryColumn = columns.find((c) => c.type === 'GEOMETRY')?.name;
+    if (!geometryColumn) {
+      throw new Error('No geometry column found in GeoParquet source');
+    }
+    await this._loaded.conn.query(createViewSql(tableName, reader, geometryColumn));
   }
 
   /**
@@ -390,8 +476,15 @@ export class DuckDBEngine implements IEngine {
    */
   private async _summarize(
     tableName: string,
+    meta: TableMeta,
   ): Promise<Omit<IngestSummary, 'tableName' | 'byteSize'>> {
-    const summaryResult = await this._loaded.conn.query(summaryQuery(tableName));
+    // Streamed sources with a bbox covering column summarize from the
+    // bbox stats instead of scanning every geometry.
+    const summarySql =
+      meta.streamed && meta.bboxColumn
+        ? bboxSummaryQuery(tableName, meta.bboxColumn)
+        : summaryQuery(tableName);
+    const summaryResult = await this._loaded.conn.query(summarySql);
     const row = summaryResult.toArray()[0] ?? {};
     const featureCount = Number(row.feature_count ?? 0);
 
@@ -402,7 +495,10 @@ export class DuckDBEngine implements IEngine {
     }
 
     let geometryType: GeometryCategory = 'unknown';
-    const typesResult = await this._loaded.conn.query(geometryTypesQuery(tableName));
+    const typesSql = meta.streamed
+      ? sampledGeometryTypesQuery(tableName)
+      : geometryTypesQuery(tableName);
+    const typesResult = await this._loaded.conn.query(typesSql);
     for (const typeRow of typesResult.toArray()) {
       geometryType = mergeGeometryCategory(
         geometryType === 'unknown' ? undefined : geometryType,

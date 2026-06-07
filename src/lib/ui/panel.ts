@@ -1,3 +1,4 @@
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import type {
   RenderMode,
   VectorControlEvent,
@@ -21,7 +22,10 @@ export interface PanelHost {
   setLayerVisibility(id: string, visible: boolean): void;
   zoomToLayer(id: string): void;
   setLayerStyle(id: string, style: Partial<VectorLayerStyle>): void;
+  setLayerPicker(id: string, enabled: boolean): void;
+  setLayerBeforeId(id: string, beforeId?: string): void;
   setRenderMode(id: string, mode: RenderMode): Promise<void>;
+  getMap(): MapLibreMap | undefined;
   on(event: VectorControlEvent, handler: VectorControlEventHandler): void;
   off(event: VectorControlEvent, handler: VectorControlEventHandler): void;
 }
@@ -34,9 +38,9 @@ export interface PanelUIOptions {
   container: HTMLElement;
   /** The owning control */
   control: PanelHost;
+  /** Placeholder text for the URL input */
+  urlPlaceholder?: string;
 }
-
-const ACCEPT_EXTENSIONS = '.geojson,.json,.gpkg,.shp,.zip,.parquet,.geoparquet,.pq,.fgb,.csv,.tsv';
 
 /**
  * Renders the vector control panel UI (file/URL loading, status line,
@@ -59,9 +63,11 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   dropText.textContent = 'Drop file or click to browse';
   dropZone.appendChild(dropText);
 
+  // No accept filter: every format the spatial extension's GDAL build
+  // can read (kml, gml, tab, dxf, ...) is fair game, not just the
+  // extensions with dedicated readers.
   const fileInput = el('input') as HTMLInputElement;
   fileInput.type = 'file';
-  fileInput.accept = ACCEPT_EXTENSIONS;
   fileInput.multiple = true;
   fileInput.style.display = 'none';
 
@@ -86,13 +92,13 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const urlRow = el('div', 'vector-control-flex vector-control-url-row');
   const urlInput = el('input', 'vector-control-input') as HTMLInputElement;
   urlInput.type = 'url';
-  urlInput.placeholder = 'https://example.com/data.geojson';
+  urlInput.placeholder = options.urlPlaceholder ?? 'https://example.com/data.parquet';
   const urlButton = el('button', 'vector-control-button', { type: 'button' });
   urlButton.textContent = 'Load';
   const loadUrl = () => {
     const url = urlInput.value.trim();
     if (!url) return;
-    void control.addData(url).then(
+    void control.addData(url, loadOptions()).then(
       () => {
         urlInput.value = '';
       },
@@ -107,6 +113,21 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   });
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
+
+  // --- Streaming toggle ----------------------------------------------------
+  // Applies to subsequent loads; GeoParquet only (others fall back to
+  // a materialized table).
+  const streamRow = el('label', 'vector-control-stream-row', {
+    title:
+      'Query GeoParquet in place with HTTP range requests instead of copying it into DuckDB. ' +
+      'Best for large remote files with a bbox covering column.',
+  });
+  const streamInput = el('input', 'vector-control-checkbox') as HTMLInputElement;
+  streamInput.type = 'checkbox';
+  const streamText = el('span');
+  streamText.textContent = 'Stream GeoParquet (no copy)';
+  streamRow.appendChild(streamInput);
+  streamRow.appendChild(streamText);
 
   // --- Status line ---------------------------------------------------------
   const status = el('div', 'vector-control-status');
@@ -137,9 +158,14 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
       list.appendChild(empty);
       return;
     }
+    // Map layers this control did not create, as insert-before targets
+    const ownLayerIds = new Set(layers.flatMap((layer) => layer.layerIds));
+    const beforeChoices = (control.getMap()?.getStyle()?.layers ?? [])
+      .map((mapLayer) => mapLayer.id)
+      .filter((mapLayerId) => !ownLayerIds.has(mapLayerId));
     for (const layer of layers) {
       list.appendChild(
-        createLayerListItem(layer, expandedEditors.has(layer.id), {
+        createLayerListItem(layer, expandedEditors.has(layer.id), { beforeChoices }, {
           onToggleVisibility: (id, visible) => control.setLayerVisibility(id, visible),
           onZoom: (id) => control.zoomToLayer(id),
           onRemove: (id) => {
@@ -160,6 +186,8 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
               // Error already surfaced through the 'error' event.
             });
           },
+          onPicker: (id, enabled) => control.setLayerPicker(id, enabled),
+          onBeforeId: (id, beforeId) => control.setLayerBeforeId(id, beforeId),
           onToggleEditor: (id) => {
             if (expandedEditors.has(id)) {
               expandedEditors.delete(id);
@@ -173,9 +201,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     }
   }
 
+  function loadOptions(): VectorLayerOptions {
+    // Explicit 'table' when unchecked, so the toggle wins over a
+    // control-level defaultIngestMode of 'stream'.
+    return { ingestMode: streamInput.checked ? 'stream' : 'table' };
+  }
+
   function loadFiles(files: FileList): void {
     for (const file of Array.from(files)) {
-      void control.addData(file).catch(() => {
+      void control.addData(file, loadOptions()).catch(() => {
         // Error already surfaced through the 'error' event.
       });
     }
@@ -199,6 +233,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(dropZone);
   container.appendChild(fileInput);
   container.appendChild(urlRow);
+  container.appendChild(streamRow);
   container.appendChild(status);
   container.appendChild(el('div', 'vector-control-divider'));
   container.appendChild(listTitle);

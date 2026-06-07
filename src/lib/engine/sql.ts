@@ -141,6 +141,133 @@ export function createTableFromLonLatSql(
 }
 
 /**
+ * SQL creating a streaming view over a reader instead of materializing
+ * a table, normalizing the geometry column to `geom`. Used for
+ * GeoParquet streaming ingest: queries hit the file in place (with
+ * HTTP range reads for remote files).
+ *
+ * @param tableName - The view to create
+ * @param reader - Reader expression from {@link readerFor}
+ * @param geometryColumn - Name of the source geometry column
+ * @returns The statement text
+ */
+export function createViewSql(
+  tableName: string,
+  reader: string,
+  geometryColumn: string,
+): string {
+  const rename =
+    geometryColumn === 'geom' ? '' : ` RENAME (${quoteIdent(geometryColumn)} AS geom)`;
+  return `CREATE OR REPLACE VIEW ${quoteIdent(tableName)} AS SELECT *${rename} FROM ${reader}`;
+}
+
+/**
+ * Recognizes a GeoParquet bbox covering column: a STRUCT with
+ * xmin/ymin/xmax/ymax fields named `bbox` or ending in `_bbox`
+ * (e.g. `geometry_bbox`, `geom_bbox`).
+ *
+ * @param name - Column name
+ * @param type - Column type string from DESCRIBE
+ * @returns True when the column is a bbox covering column
+ */
+export function isBboxCoveringColumn(name: string, type: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower !== 'bbox' && !lower.endsWith('_bbox')) return false;
+  const upper = type.toUpperCase();
+  return (
+    upper.startsWith('STRUCT') &&
+    /\bXMIN\b/.test(upper) &&
+    /\bYMIN\b/.test(upper) &&
+    /\bXMAX\b/.test(upper) &&
+    /\bYMAX\b/.test(upper)
+  );
+}
+
+/**
+ * SQL computing feature count and extent from a bbox covering column,
+ * avoiding a full geometry scan on streamed sources.
+ *
+ * @param tableName - The table or view to summarize
+ * @param bboxColumn - The bbox covering column name
+ * @returns The query text
+ */
+export function bboxSummaryQuery(tableName: string, bboxColumn: string): string {
+  const table = quoteIdent(tableName);
+  const bbox = quoteIdent(bboxColumn);
+  return (
+    `SELECT count(*)::DOUBLE AS feature_count, ` +
+    `min(${bbox}.xmin)::DOUBLE AS xmin, min(${bbox}.ymin)::DOUBLE AS ymin, ` +
+    `max(${bbox}.xmax)::DOUBLE AS xmax, max(${bbox}.ymax)::DOUBLE AS ymax ` +
+    `FROM ${table}`
+  );
+}
+
+/**
+ * SQL sampling the distinct geometry types of a table or view without
+ * scanning every row (streamed sources can be large).
+ *
+ * @param tableName - The table or view to inspect
+ * @param sampleSize - Number of rows to sample
+ * @returns The query text
+ */
+export function sampledGeometryTypesQuery(tableName: string, sampleSize = 100): string {
+  return (
+    `SELECT DISTINCT CAST(ST_GeometryType(geom) AS VARCHAR) AS geometry_type ` +
+    `FROM (SELECT geom FROM ${quoteIdent(tableName)} WHERE geom IS NOT NULL LIMIT ${sampleSize})`
+  );
+}
+
+/**
+ * SQL generating an MVT tile from a streamed (EPSG:4326) source.
+ *
+ * The geometry is transformed per tile; when a bbox covering column is
+ * present its predicate is pushed into parquet row-group statistics so
+ * only intersecting row groups are read.
+ *
+ * @param tableName - The streaming view
+ * @param layerName - MVT layer name (matches the map source-layer)
+ * @param z - Tile zoom
+ * @param x - Tile column
+ * @param y - Tile row
+ * @param bbox4326 - Tile bounds in EPSG:4326 [west, south, east, north]
+ * @param propertyColumns - Non-geometry columns to encode as properties
+ * @param bboxColumn - Optional bbox covering column for pushdown
+ * @returns The query text
+ */
+export function mvtTileStreamQuery(
+  tableName: string,
+  layerName: string,
+  z: number,
+  x: number,
+  y: number,
+  bbox4326: [number, number, number, number],
+  propertyColumns: string[],
+  bboxColumn?: string,
+): string {
+  const table = quoteIdent(tableName);
+  const [west, south, east, north] = bbox4326;
+  const env3857 = `ST_TileEnvelope(${z}, ${x}, ${y})`;
+  const env4326 = `ST_MakeEnvelope(${west}, ${south}, ${east}, ${north})`;
+  const props = propertyColumns
+    .map((c) => `${quoteLiteral(c)}: TRY_CAST(${quoteIdent(c)} AS VARCHAR)`)
+    .join(', ');
+  const geometry =
+    `ST_AsMVTGeom(ST_Transform(geom, 'EPSG:4326', 'EPSG:3857', always_xy := true), ` +
+    `ST_Extent(${env3857}))`;
+  const struct = `{'geometry': ${geometry}${props ? `, ${props}` : ''}}`;
+  const bboxFilter = bboxColumn
+    ? `${quoteIdent(bboxColumn)}.xmin <= ${east} AND ${quoteIdent(bboxColumn)}.xmax >= ${west} ` +
+      `AND ${quoteIdent(bboxColumn)}.ymin <= ${north} AND ${quoteIdent(bboxColumn)}.ymax >= ${south} AND `
+    : '';
+  return (
+    `SELECT ST_AsMVT(${struct}, ${quoteLiteral(layerName)}) AS tile FROM (` +
+    `SELECT * FROM ${table} ` +
+    `WHERE ${bboxFilter}geom IS NOT NULL AND ST_Intersects(geom, ${env4326}) ` +
+    `LIMIT ${TILE_FEATURE_LIMIT})`
+  );
+}
+
+/**
  * SQL computing feature count and extent of a table.
  *
  * @param tableName - The table to summarize
@@ -262,6 +389,20 @@ export function tileFeaturesQuery(
     `SELECT ST_AsGeoJSON(geom) AS __geojson${selectProps} FROM ${table} ` +
     `WHERE geom IS NOT NULL AND ST_Intersects(geom, ${envelope}) ` +
     `LIMIT ${TILE_FEATURE_LIMIT}`
+  );
+}
+
+/**
+ * SQL listing the named layers inside a multi-layer container
+ * (GeoPackage tables, KML folders, ...) via ST_Read_Meta.
+ *
+ * @param path - Registered file name or URL
+ * @returns The query text
+ */
+export function layersMetaQuery(path: string): string {
+  return (
+    `SELECT layer.name AS name FROM ` +
+    `(SELECT unnest(layers) AS layer FROM ST_Read_Meta(${quoteLiteral(path)}))`
   );
 }
 

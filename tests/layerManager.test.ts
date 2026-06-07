@@ -3,7 +3,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import { LayerManager, tableNameFor } from '../src/lib/core/LayerManager';
 import type { IEngine } from '../src/lib/engine/types';
-import { hasTileProvider } from '../src/lib/tiles/protocol';
+import { hasTileProvider, loadTile } from '../src/lib/tiles/protocol';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -46,6 +46,11 @@ function createMockMap() {
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     fitBounds: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    getCanvas: vi.fn(() => ({ style: {} })),
+    moveLayer: vi.fn(),
+    getStyle: vi.fn(() => ({ layers: [] })),
   };
 }
 
@@ -58,6 +63,7 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
       geometryType: 'polygon' as const,
       byteSize: 1234,
     })),
+    listLayers: vi.fn(async () => []),
     exportGeoJSON: vi.fn(async () => POLYGON_FC),
     prepareTiles: vi.fn(async () => undefined),
     getTile: vi.fn(async () => new Uint8Array(0)),
@@ -173,12 +179,120 @@ describe('LayerManager engine path', () => {
     const providerKey = providerKeyFromSource(sourceSpec);
     expect(hasTileProvider(providerKey)).toBe(true);
     // source-layer must match the layer id used in the tile query
-    expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({ 'source-layer': 'big' }));
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ 'source-layer': 'big' }),
+      undefined,
+    );
 
     manager.removeLayer('big');
     expect(hasTileProvider(providerKey)).toBe(false);
     // dropTable is fire-and-forget through the async engine provider
     await vi.waitFor(() => expect(engine.dropTable).toHaveBeenCalledWith('t_big'));
+  });
+
+  it('passes the ingest mode to the engine and reflects the result', async () => {
+    const engine = createMockEngine({
+      ingest: vi.fn(async (_s, tableName) => ({
+        tableName,
+        featureCount: 100,
+        bbox: [0, 0, 10, 10] as [number, number, number, number],
+        geometryType: 'polygon' as const,
+        streamed: true,
+      })),
+    });
+    const { manager } = createManager({}, engine);
+
+    const info = await manager.addData('https://x.com/big.parquet', {
+      id: 'streamy',
+      ingestMode: 'stream',
+    });
+
+    expect(engine.ingest).toHaveBeenCalledWith(
+      'https://x.com/big.parquet',
+      't_streamy',
+      expect.objectContaining({ mode: 'stream' }),
+    );
+    expect(info.ingestMode).toBe('stream');
+  });
+
+  it('falls back to table mode when the engine does not stream', async () => {
+    const { manager } = createManager();
+    const info = await manager.addData(new File(['x'], 'data.gpkg'), {
+      id: 'nostream',
+      ingestMode: 'stream',
+    });
+    // Mock engine reports streamed: undefined -> resolved as table
+    expect(info.ingestMode).toBe('table');
+  });
+
+  it('expands multi-layer containers into one vector layer per source layer', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager, map, emit } = createManager({}, engine);
+
+    const info = await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+
+    expect(engine.listLayers).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city',
+      expect.objectContaining({ format: 'geopackage' }),
+    );
+    expect(engine.ingest).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city_roads',
+      expect.objectContaining({ sourceLayer: 'roads' }),
+    );
+    expect(engine.ingest).toHaveBeenCalledWith(
+      expect.anything(),
+      't_city_buildings',
+      expect.objectContaining({ sourceLayer: 'buildings' }),
+    );
+    expect(manager.getLayers().map((l) => l.id).sort()).toEqual([
+      'city-buildings',
+      'city-roads',
+    ]);
+    expect(manager.getLayer('city-roads')?.name).toBe('roads');
+    expect(info.id).toBe('city-roads');
+    // One combined fitBounds for the whole container
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith(
+      'loading',
+      expect.objectContaining({ message: expect.stringContaining('2 layers') }),
+    );
+  });
+
+  it('skips expansion when a sourceLayer is requested', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'one', sourceLayer: 'roads' });
+    expect(engine.listLayers).not.toHaveBeenCalled();
+    expect(manager.getLayers()).toHaveLength(1);
+  });
+
+  it('reports tile generation progress through loading events', async () => {
+    const engine = createMockEngine();
+    const { manager, map, emit } = createManager({}, engine);
+    await manager.addData(new File(['x'], 'data.fgb'), { id: 'prog', renderMode: 'tiles' });
+    const sourceSpec = map.addSource.mock.calls.find((c) => c[0] === 'prog-source')?.[1] as {
+      tiles: string[];
+    };
+    const providerKey = providerKeyFromSource(sourceSpec);
+    emit.mockClear();
+
+    await loadTile(`duckdb://${encodeURIComponent(providerKey)}/0/0/0`, new AbortController().signal);
+    expect(emit).toHaveBeenCalledWith(
+      'loading',
+      expect.objectContaining({ message: 'Generating tiles (1 pending)...' }),
+    );
+    // Status clears shortly after the queue drains
+    await vi.waitFor(() =>
+      expect(emit).toHaveBeenCalledWith('loading', expect.objectContaining({ message: '' })),
+    );
+    manager.removeLayer('prog');
   });
 
   it('honors the per-layer tiles override below thresholds', async () => {
@@ -268,6 +382,70 @@ describe('LayerManager layer operations', () => {
       'poly-source',
       expect.objectContaining({ type: 'geojson' }),
     );
+  });
+
+  it('attaches picker click handlers by default and detaches on remove', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseenter', 'poly-fill', expect.any(Function));
+
+    manager.removeLayer('poly');
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('skips picker handlers when disabled', async () => {
+    const { manager, map } = createManager({ enablePicker: false });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).not.toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('passes beforeId to addLayer when the target exists', async () => {
+    const { manager, map } = createManager({ beforeId: 'labels' });
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-fill' }),
+      'labels',
+    );
+  });
+
+  it('ignores beforeId when the target layer is missing', async () => {
+    const { manager, map } = createManager({ beforeId: 'missing' });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-fill' }),
+      undefined,
+    );
+  });
+
+  it('toggles the picker at runtime', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(manager.getLayer('poly')?.picker).toBe(true);
+
+    manager.setLayerPicker('poly', false);
+    expect(manager.getLayer('poly')?.picker).toBe(false);
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+
+    map.on.mockClear();
+    manager.setLayerPicker('poly', true);
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('moves layers with setLayerBeforeId', async () => {
+    const { manager, map } = createManager();
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+
+    manager.setLayerBeforeId('poly', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-outline', 'labels');
+    expect(manager.getLayer('poly')?.beforeId).toBe('labels');
+
+    manager.setLayerBeforeId('poly', undefined);
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', undefined);
+    expect(manager.getLayer('poly')?.beforeId).toBeUndefined();
   });
 
   it('disposes without events', async () => {

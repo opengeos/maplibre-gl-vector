@@ -6,6 +6,13 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/types/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "react": [
+        "./dist/types/react.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "import": {

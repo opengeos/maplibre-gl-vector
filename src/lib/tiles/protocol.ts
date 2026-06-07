@@ -1,21 +1,9 @@
+import { getMaplibre } from '../utils/maplibre';
+
 /**
  * Custom protocol scheme used for dynamic DuckDB tiles.
  */
 export const TILE_PROTOCOL = 'duckdb';
-
-/**
- * The subset of the maplibre-gl module used to manage protocols.
- */
-interface ProtocolApi {
-  addProtocol(
-    name: string,
-    loadFn: (
-      params: { url: string },
-      abortController: AbortController,
-    ) => Promise<{ data: Uint8Array }>,
-  ): void;
-  removeProtocol(name: string): void;
-}
 
 /**
  * Produces an MVT tile for a z/x/y request.
@@ -28,36 +16,7 @@ export type TileProvider = (
 ) => Promise<Uint8Array>;
 
 const providers = new Map<string, TileProvider>();
-let apiPromise: Promise<ProtocolApi> | undefined;
 let protocolRegistered = false;
-
-/**
- * Resolves the maplibre-gl module providing addProtocol/removeProtocol.
- *
- * The global `maplibregl` (UMD build or host app) is preferred so the
- * protocol lands on the SAME module instance that owns the map; a
- * bundled second copy of maplibre-gl would register the protocol where
- * the host map never looks. Falls back to importing the peer
- * dependency.
- */
-function getProtocolApi(): Promise<ProtocolApi> {
-  if (!apiPromise) {
-    const globalMaplibre = (globalThis as Record<string, unknown>).maplibregl as
-      | ProtocolApi
-      | undefined;
-    if (globalMaplibre && typeof globalMaplibre.addProtocol === 'function') {
-      apiPromise = Promise.resolve(globalMaplibre);
-    } else {
-      apiPromise = import('maplibre-gl').then(
-        (module) => (module.default ?? module) as unknown as ProtocolApi,
-      );
-    }
-    apiPromise.catch(() => {
-      apiPromise = undefined;
-    });
-  }
-  return apiPromise;
-}
 
 /**
  * Builds the tile URL template for a registered tile provider.
@@ -142,7 +101,7 @@ export async function registerTileProvider(
 ): Promise<void> {
   providers.set(providerKey, provider);
   if (!protocolRegistered) {
-    const api = await getProtocolApi();
+    const api = await getMaplibre();
     if (!protocolRegistered) {
       api.addProtocol(TILE_PROTOCOL, async (params, abortController) => {
         const data = await loadTile(params.url, abortController.signal);
@@ -162,11 +121,17 @@ export async function registerTileProvider(
 export function unregisterTileProvider(providerKey: string): void {
   providers.delete(providerKey);
   if (providers.size === 0 && protocolRegistered) {
-    protocolRegistered = false;
-    void getProtocolApi().then((api) => {
-      // Re-check: a provider may have been registered meanwhile.
-      if (providers.size === 0) api.removeProtocol(TILE_PROTOCOL);
-    });
+    void getMaplibre()
+      .then((api) => {
+        // Re-check: a provider may have been registered meanwhile.
+        if (providers.size === 0 && protocolRegistered) {
+          api.removeProtocol(TILE_PROTOCOL);
+          protocolRegistered = false;
+        }
+      })
+      .catch(() => {
+        // Leave state unchanged; a later unregister can retry teardown.
+      });
   }
 }
 

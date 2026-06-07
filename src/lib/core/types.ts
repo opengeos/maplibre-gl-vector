@@ -11,7 +11,26 @@ import type { GeoJSON } from 'geojson';
 export type RenderMode = 'auto' | 'geojson' | 'tiles';
 
 /**
- * Vector data formats supported by the control.
+ * How a dataset is ingested into DuckDB.
+ *
+ * - `'table'` - Materialize into an in-memory table with an EPSG:3857
+ *   column and R-Tree index (fast tiles; memory ~= dataset size)
+ * - `'stream'` - GeoParquet only: query the file in place through a
+ *   view. Remote files are read with HTTP range requests per tile,
+ *   using the GeoParquet bbox covering column for row-group pruning
+ *   when present. Nothing is copied into the database.
+ */
+export type IngestMode = 'table' | 'stream';
+
+/**
+ * Vector data formats recognized by the control.
+ *
+ * The named values get dedicated readers; any other extension (kml,
+ * gml, tab, dxf, ...) is passed through as-is and read with the
+ * spatial extension's GDAL-backed ST_Read, so every format the
+ * spatial extension supports works. 'unknown' means the format could
+ * not be determined at all (no extension); it is still attempted via
+ * ST_Read.
  */
 export type VectorFormat =
   | 'geojson'
@@ -20,7 +39,8 @@ export type VectorFormat =
   | 'geoparquet'
   | 'flatgeobuf'
   | 'csv'
-  | 'unknown';
+  | 'unknown'
+  | (string & {});
 
 /**
  * Broad geometry category of a layer, used to pick map layer types.
@@ -104,6 +124,32 @@ export interface VectorControlOptions {
    * Attribution string attached to created sources
    */
   attribution?: string;
+
+  /**
+   * Existing map layer id that new vector layers are inserted before
+   * (e.g. a label layer), so loaded data renders underneath it.
+   * Per-layer `beforeId` overrides this.
+   */
+  beforeId?: string;
+
+  /**
+   * Whether clicking a feature opens a popup with its attributes.
+   * Per-layer `picker` overrides this.
+   * @default true
+   */
+  enablePicker?: boolean;
+
+  /**
+   * Default ingest mode for new layers (per-layer `ingestMode` wins)
+   * @default 'table'
+   */
+  defaultIngestMode?: IngestMode;
+
+  /**
+   * Placeholder text shown in the panel's URL input
+   * @default 'https://example.com/data.parquet'
+   */
+  urlPlaceholder?: string;
 }
 
 /**
@@ -172,6 +218,24 @@ export interface VectorLayerOptions {
    * Explicit format when it cannot be detected from the file name/URL
    */
   format?: VectorFormat;
+
+  /**
+   * Existing map layer id this layer's map layers are inserted before
+   * (overrides the control-level `beforeId`)
+   */
+  beforeId?: string;
+
+  /**
+   * Whether clicking a feature of this layer opens an attribute popup
+   * (overrides the control-level `enablePicker`)
+   */
+  picker?: boolean;
+
+  /**
+   * How the dataset is ingested (GeoParquet supports 'stream')
+   * @default 'table'
+   */
+  ingestMode?: IngestMode;
 }
 
 /**
@@ -196,6 +260,12 @@ export interface VectorLayerInfo {
   bbox?: [number, number, number, number];
   /** Whether the layer is currently visible */
   visible: boolean;
+  /** Whether clicking a feature opens an attribute popup */
+  picker: boolean;
+  /** How the dataset was ingested ('stream' = queried in place) */
+  ingestMode: IngestMode;
+  /** Map layer id this layer's map layers sit before, when set */
+  beforeId?: string;
   /** Current style */
   style: VectorLayerStyle;
   /** Map source id */

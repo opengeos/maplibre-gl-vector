@@ -38,3 +38,4 @@ dist-examples/
 .env.local
 .env.*.local
 .vite/
+.playwright-cli/

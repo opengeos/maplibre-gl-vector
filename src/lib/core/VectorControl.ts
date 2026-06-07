@@ -112,6 +112,7 @@ export class VectorControl implements IControl {
       this._disposePanelUI = renderPanelUI({
         container: this._content,
         control: this,
+        urlPlaceholder: this._options.urlPlaceholder,
       });
     }
 
@@ -252,6 +253,27 @@ export class VectorControl implements IControl {
    */
   setLayerStyle(id: string, style: Partial<VectorLayerStyle>): void {
     this._layerManager?.setLayerStyle(id, style);
+  }
+
+  /**
+   * Enables or disables the attribute popup for a layer.
+   *
+   * @param id - The layer id
+   * @param enabled - Whether clicking a feature opens a popup
+   */
+  setLayerPicker(id: string, enabled: boolean): void {
+    this._layerManager?.setLayerPicker(id, enabled);
+  }
+
+  /**
+   * Moves a layer's map layers before another map layer (or to the top
+   * when omitted).
+   *
+   * @param id - The layer id
+   * @param beforeId - Target map layer id, or undefined for the top
+   */
+  setLayerBeforeId(id: string, beforeId?: string): void {
+    this._layerManager?.setLayerBeforeId(id, beforeId);
   }
 
   /**
@@ -444,12 +466,17 @@ export class VectorControl implements IControl {
     toggleBtn.className = 'vector-control-toggle';
     toggleBtn.type = 'button';
     toggleBtn.setAttribute('aria-label', this._options.title);
+    // Vector geometry icon: a triangle of edges with vertex nodes
+    // (points, lines, and a polygon in one glyph)
     toggleBtn.innerHTML = `
       <span class="vector-control-icon">
         <svg viewBox="0 0 24 24" width="22" height="22" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2 2 7l10 5 10-5-10-5z"/>
-          <path d="M2 12l10 5 10-5"/>
-          <path d="M2 17l10 5 10-5"/>
+          <circle cx="5.5" cy="5.5" r="2.2"/>
+          <circle cx="18.5" cy="8.5" r="2.2"/>
+          <circle cx="11" cy="19" r="2.2"/>
+          <path d="M7.7 6 16.3 8"/>
+          <path d="M17.4 10.4 12 17.2"/>
+          <path d="M10.3 16.9 6 7.6"/>
         </svg>
       </span>
     `;
@@ -507,6 +534,9 @@ export class VectorControl implements IControl {
     // Click outside to close (check both container and panel since they're now separate)
     this._clickOutsideHandler = (e: MouseEvent) => {
       const target = e.target as Node;
+      // A click on panel UI can re-render the list before the event
+      // bubbles here, detaching its target; don't treat that as outside.
+      if (!target.isConnected) return;
       if (
         this._container &&
         this._panel &&
@@ -606,5 +636,18 @@ export class VectorControl implements IControl {
         this._panel.style.right = `${buttonRight}px`;
         break;
     }
+
+    // Constrain the panel to the map so it scrolls instead of
+    // overflowing on small screens.
+    const edgeMargin = 10;
+    const occupied =
+      (position.startsWith('top') ? buttonTop : buttonBottom) + buttonRect.height + panelGap;
+    const available = mapRect.height - occupied - edgeMargin;
+    this._panel.style.maxHeight = `${Math.max(120, available)}px`;
+    const availableWidth = Math.max(120, mapRect.width - 2 * edgeMargin);
+    this._panel.style.maxWidth = `${availableWidth}px`;
+    // Clamp the stylesheet's min-width too, or it overrides maxWidth
+    // on very narrow maps.
+    this._panel.style.minWidth = `${Math.min(240, availableWidth)}px`;
   }
 }

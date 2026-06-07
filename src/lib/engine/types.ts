@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson';
-import type { GeometryCategory, VectorFormat } from '../core/types';
+import type { GeometryCategory, IngestMode, VectorFormat } from '../core/types';
 import type { Bbox } from '../utils/geometry';
 
 /**
@@ -12,6 +12,8 @@ export interface IngestOptions {
   sourceLayer?: string;
   /** Original file name, used to pick a registration name */
   fileName?: string;
+  /** Requested ingest mode (streaming applies to GeoParquet only) */
+  mode?: IngestMode;
 }
 
 /**
@@ -28,6 +30,8 @@ export interface IngestSummary {
   geometryType: GeometryCategory;
   /** Source size in bytes, when known */
   byteSize?: number;
+  /** Whether the source is streamed in place instead of materialized */
+  streamed?: boolean;
 }
 
 /**
@@ -46,6 +50,21 @@ export interface IEngine {
    * @returns Summary of the ingested data
    */
   ingest(source: string | File | Blob, tableName: string, options: IngestOptions): Promise<IngestSummary>;
+
+  /**
+   * Lists the named layers inside a multi-layer container (GeoPackage
+   * tables, KML folders, ...).
+   *
+   * @param source - URL string, File, or Blob
+   * @param registrationName - Virtual file name used when registering
+   * @param options - Ingest options (format, fileName)
+   * @returns Layer names; empty for single-layer or unreadable sources
+   */
+  listLayers(
+    source: string | File | Blob,
+    registrationName: string,
+    options: IngestOptions,
+  ): Promise<string[]>;
 
   /**
    * Exports a table to a GeoJSON FeatureCollection (EPSG:4326).

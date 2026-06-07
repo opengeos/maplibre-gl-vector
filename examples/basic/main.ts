@@ -15,7 +15,7 @@ const SAMPLES = {
 // Create map
 const map = new maplibregl.Map({
   container: 'map',
-  style: 'https://demotiles.maplibre.org/style.json',
+  style: 'https://tiles.openfreemap.org/styles/positron',
   center: [-98, 39],
   zoom: 3,
 });
