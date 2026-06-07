@@ -46,6 +46,9 @@ function createMockMap() {
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     fitBounds: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    getCanvas: vi.fn(() => ({ style: {} })),
   };
 }
 
@@ -173,7 +176,10 @@ describe('LayerManager engine path', () => {
     const providerKey = providerKeyFromSource(sourceSpec);
     expect(hasTileProvider(providerKey)).toBe(true);
     // source-layer must match the layer id used in the tile query
-    expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({ 'source-layer': 'big' }));
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ 'source-layer': 'big' }),
+      undefined,
+    );
 
     manager.removeLayer('big');
     expect(hasTileProvider(providerKey)).toBe(false);
@@ -267,6 +273,41 @@ describe('LayerManager layer operations', () => {
     expect(map.addSource).toHaveBeenLastCalledWith(
       'poly-source',
       expect.objectContaining({ type: 'geojson' }),
+    );
+  });
+
+  it('attaches picker click handlers by default and detaches on remove', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseenter', 'poly-fill', expect.any(Function));
+
+    manager.removeLayer('poly');
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('skips picker handlers when disabled', async () => {
+    const { manager, map } = createManager({ enablePicker: false });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).not.toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('passes beforeId to addLayer when the target exists', async () => {
+    const { manager, map } = createManager({ beforeId: 'labels' });
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-fill' }),
+      'labels',
+    );
+  });
+
+  it('ignores beforeId when the target layer is missing', async () => {
+    const { manager, map } = createManager({ beforeId: 'missing' });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-fill' }),
+      undefined,
     );
   });
 

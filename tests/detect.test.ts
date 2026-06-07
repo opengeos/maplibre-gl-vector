@@ -3,6 +3,7 @@ import {
   baseName,
   detectSource,
   fileNameFromUrl,
+  formatFromDataUrl,
   formatFromFileName,
 } from '../src/lib/formats/detect';
 
@@ -19,7 +20,10 @@ describe('formatFromFileName', () => {
     ['data.fgb', 'flatgeobuf'],
     ['data.csv', 'csv'],
     ['data.tsv', 'csv'],
-    ['data.xyz', 'unknown'],
+    // GDAL-handled formats pass through as their extension
+    ['data.kml', 'kml'],
+    ['data.gml', 'gml'],
+    ['data.xyz', 'xyz'],
     ['data', 'unknown'],
   ] as const)('detects %s as %s', (fileName, format) => {
     expect(formatFromFileName(fileName)).toBe(format);
@@ -46,7 +50,24 @@ describe('baseName', () => {
   });
 });
 
+describe('formatFromDataUrl', () => {
+  it.each([
+    ['data:application/geo+json;base64,e30=', 'geojson'],
+    ['data:application/json,%7B%7D', 'geojson'],
+    ['data:text/csv;base64,YQ==', 'csv'],
+    ['data:application/vnd.apache.parquet;base64,AA==', 'geoparquet'],
+    ['data:application/octet-stream;base64,AA==', 'unknown'],
+  ] as const)('detects %s as %s', (url, format) => {
+    expect(formatFromDataUrl(url)).toBe(format);
+  });
+});
+
 describe('detectSource', () => {
+  it('detects bundler-inlined GeoJSON data URLs by MIME type', () => {
+    // Vite inlines small assets as base64 data URLs in production builds
+    expect(detectSource('data:application/geo+json;base64,e30=').format).toBe('geojson');
+  });
+
   it('detects URLs by extension', () => {
     expect(detectSource('https://example.com/buildings.parquet')).toEqual({
       format: 'geoparquet',

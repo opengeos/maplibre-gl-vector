@@ -11,7 +11,14 @@ import type { GeoJSON } from 'geojson';
 export type RenderMode = 'auto' | 'geojson' | 'tiles';
 
 /**
- * Vector data formats supported by the control.
+ * Vector data formats recognized by the control.
+ *
+ * The named values get dedicated readers; any other extension (kml,
+ * gml, tab, dxf, ...) is passed through as-is and read with the
+ * spatial extension's GDAL-backed ST_Read, so every format the
+ * spatial extension supports works. 'unknown' means the format could
+ * not be determined at all (no extension); it is still attempted via
+ * ST_Read.
  */
 export type VectorFormat =
   | 'geojson'
@@ -20,7 +27,8 @@ export type VectorFormat =
   | 'geoparquet'
   | 'flatgeobuf'
   | 'csv'
-  | 'unknown';
+  | 'unknown'
+  | (string & {});
 
 /**
  * Broad geometry category of a layer, used to pick map layer types.
@@ -104,6 +112,20 @@ export interface VectorControlOptions {
    * Attribution string attached to created sources
    */
   attribution?: string;
+
+  /**
+   * Existing map layer id that new vector layers are inserted before
+   * (e.g. a label layer), so loaded data renders underneath it.
+   * Per-layer `beforeId` overrides this.
+   */
+  beforeId?: string;
+
+  /**
+   * Whether clicking a feature opens a popup with its attributes.
+   * Per-layer `picker` overrides this.
+   * @default true
+   */
+  enablePicker?: boolean;
 }
 
 /**
@@ -172,6 +194,18 @@ export interface VectorLayerOptions {
    * Explicit format when it cannot be detected from the file name/URL
    */
   format?: VectorFormat;
+
+  /**
+   * Existing map layer id this layer's map layers are inserted before
+   * (overrides the control-level `beforeId`)
+   */
+  beforeId?: string;
+
+  /**
+   * Whether clicking a feature of this layer opens an attribute popup
+   * (overrides the control-level `enablePicker`)
+   */
+  picker?: boolean;
 }
 
 /**

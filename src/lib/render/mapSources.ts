@@ -68,6 +68,8 @@ export interface AddLayersOptions {
   visible: boolean;
   /** source-layer name for vector tile sources (omit for geojson) */
   sourceLayer?: string;
+  /** Existing map layer id to insert the new layers before */
+  beforeId?: string;
 }
 
 /**
@@ -140,23 +142,30 @@ export function addVectorTileSource(
  * @returns The created map layer ids
  */
 export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): string[] {
-  const { layerId, geometryType, style, visible, sourceLayer } = options;
+  const { layerId, geometryType, style, visible, sourceLayer, beforeId } = options;
   const sourceId = sourceIdFor(layerId);
   const suffixes = suffixesForGeometry(geometryType);
   const layerIds: string[] = [];
 
+  // Only honor beforeId when the target layer exists; addLayer throws
+  // otherwise (e.g. a label layer absent from the active style).
+  const before = beforeId && map.getLayer(beforeId) ? beforeId : undefined;
+
   for (const suffix of suffixes) {
     const id = mapLayerId(layerId, suffix);
-    map.addLayer({
-      id,
-      type: SUFFIX_TYPES[suffix],
-      source: sourceId,
-      ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-      filter: SUFFIX_FILTERS[suffix],
-      paint: buildPaint(suffix, style),
-      layout: { visibility: visible ? 'visible' : 'none' },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    map.addLayer(
+      {
+        id,
+        type: SUFFIX_TYPES[suffix],
+        source: sourceId,
+        ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+        filter: SUFFIX_FILTERS[suffix],
+        paint: buildPaint(suffix, style),
+        layout: { visibility: visible ? 'visible' : 'none' },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+      before,
+    );
     layerIds.push(id);
   }
 

@@ -1,15 +1,70 @@
 /**
- * MapLibre GL Plugin Control Styles
+ * MapLibre GL Vector Control Styles
  *
- * This stylesheet provides the base styles for the plugin control.
- * Customize these styles to match your plugin's design.
+ * Colors are driven by custom properties with light defaults and a
+ * prefers-color-scheme dark override, so the panel renders properly in
+ * both themes. The variables are defined on both roots because the
+ * panel element is appended to the map container, outside the control.
  */
 
-/* Container - matches maplibregl-ctrl styling */
-.vector-control {
-  background: #fff;
+.vector-control,
+.vector-control-panel,
+.vector-control-popup {
+  --vc-bg: #fff;
+  --vc-text: #333;
+  --vc-text-strong: #1f2a37;
+  --vc-text-soft: #475467;
+  --vc-muted: #98a2b3;
+  --vc-border: #e0e0e0;
+  --vc-border-soft: #e9edf2;
+  --vc-item-bg: #fafbfc;
+  --vc-hover: rgba(0, 0, 0, 0.05);
+  --vc-accent: #4a90d9;
+  --vc-accent-hover: #3a7bc8;
+  --vc-accent-soft: rgba(74, 144, 217, 0.06);
+  --vc-error: #d9534a;
+  --vc-input-bg: #fff;
+  --vc-input-border: #d0d5dd;
+  --vc-scrollbar: #ccc;
+  --vc-scrollbar-hover: #aaa;
+  --vc-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .vector-control,
+  .vector-control-panel,
+  .vector-control-popup {
+    --vc-bg: #1f2937;
+    --vc-text: #e5e7eb;
+    --vc-text-strong: #f3f4f6;
+    --vc-text-soft: #cbd5e1;
+    --vc-muted: #8b96a5;
+    --vc-border: #374151;
+    --vc-border-soft: #2c3543;
+    --vc-item-bg: #273141;
+    --vc-hover: rgba(255, 255, 255, 0.08);
+    --vc-accent: #5ba0e8;
+    --vc-accent-hover: #6fb0f2;
+    --vc-accent-soft: rgba(91, 160, 232, 0.12);
+    --vc-error: #f08c85;
+    --vc-input-bg: #111827;
+    --vc-input-border: #4b5563;
+    --vc-scrollbar: #4b5563;
+    --vc-scrollbar-hover: #6b7280;
+    --vc-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* Container - matches maplibregl-ctrl styling.
+   The doubled class selector outranks maplibre-gl's own
+   `.maplibregl-ctrl-group { background: #fff }` regardless of
+   stylesheet order, so the button follows the system theme too -
+   otherwise dark mode renders a light icon on a white button. */
+.vector-control,
+.vector-control.maplibregl-ctrl-group {
+  background: var(--vc-bg);
   border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--vc-shadow);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -25,11 +80,11 @@
   justify-content: center;
   cursor: pointer;
   outline: none;
-  color: #1f2a37;
+  color: var(--vc-text-strong);
 }
 
 .vector-control-toggle:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--vc-hover);
 }
 
 .vector-control-toggle .vector-control-icon {
@@ -50,38 +105,43 @@
   fill: none;
 }
 
-/* Panel - positioned dynamically by JavaScript for floating behavior */
+/* Panel - positioned dynamically by JavaScript for floating behavior.
+   A flex column so the header stays put and the content scrolls when
+   the JS-computed max-height kicks in on small screens. */
 .vector-control-panel {
   position: absolute;
-  /* Position is set dynamically by _updatePanelPosition() */
-  background: #fff;
+  /* Position and max-height/max-width are set by _updatePanelPosition() */
+  background: var(--vc-bg);
   border-radius: 4px;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--vc-shadow);
   min-width: 240px;
   max-width: 420px;
   max-height: 500px;
-  overflow-y: auto;
   z-index: 1000;
   padding: 8px;
   font-size: 12px;
   line-height: 1.4;
+  color: var(--vc-text);
   display: none;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .vector-control-panel.expanded {
-  display: block;
+  display: flex;
 }
 
 /* Panel header */
 .vector-control-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   font-weight: 600;
-  color: #333;
+  color: var(--vc-text);
   padding: 4px 0 8px 0;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--vc-border);
   margin-bottom: 8px;
 }
 
@@ -95,7 +155,7 @@
   height: 20px;
   border: none;
   background: transparent;
-  color: #999;
+  color: var(--vc-muted);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -107,21 +167,14 @@
 }
 
 .vector-control-close:hover {
-  color: #333;
+  color: var(--vc-text);
 }
 
-/* Content */
+/* Content - the scrolling region of the panel */
 .vector-control-content {
-  max-height: 400px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-}
-
-.vector-control-placeholder {
-  margin: 0;
-  color: #888;
-  font-size: 12px;
-  text-align: center;
-  padding: 16px 0;
 }
 
 /* Scrollbar styling */
@@ -134,12 +187,12 @@
 }
 
 .vector-control-content::-webkit-scrollbar-thumb {
-  background: #ccc;
+  background: var(--vc-scrollbar);
   border-radius: 3px;
 }
 
 .vector-control-content::-webkit-scrollbar-thumb:hover {
-  background: #aaa;
+  background: var(--vc-scrollbar-hover);
 }
 
 /* Form elements */
@@ -156,22 +209,29 @@
   margin-bottom: 4px;
   font-size: 12px;
   font-weight: 500;
-  color: #555;
+  color: var(--vc-text-soft);
 }
 
 .vector-control-input {
   width: 100%;
   padding: 8px 10px;
   font-size: 14px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--vc-input-border);
   border-radius: 4px;
   outline: none;
+  background: var(--vc-input-bg);
+  color: var(--vc-text);
   transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.vector-control-input::placeholder {
+  color: var(--vc-muted);
 }
 
 .vector-control-input:focus {
-  border-color: #4a90d9;
-  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+  border-color: var(--vc-accent);
+  box-shadow: 0 0 0 3px var(--vc-accent-soft);
 }
 
 .vector-control-button {
@@ -182,7 +242,7 @@
   font-size: 14px;
   font-weight: 500;
   color: white;
-  background: #4a90d9;
+  background: var(--vc-accent);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -190,16 +250,16 @@
 }
 
 .vector-control-button:hover {
-  background: #3a7bc8;
+  background: var(--vc-accent-hover);
 }
 
 .vector-control-button:focus {
-  outline: 2px solid #4a90d9;
+  outline: 2px solid var(--vc-accent);
   outline-offset: 2px;
 }
 
 .vector-control-button:disabled {
-  background: #ccc;
+  background: var(--vc-muted);
   cursor: not-allowed;
 }
 
@@ -217,8 +277,9 @@
 
 .vector-control-divider {
   height: 1px;
-  background: #e0e0e0;
+  background: var(--vc-border);
   margin: 12px 0;
+  flex: 0 0 auto;
 }
 
 /* ------------------------------------------------------------------ */
@@ -232,9 +293,9 @@
   justify-content: center;
   gap: 8px;
   padding: 14px 10px;
-  border: 1.5px dashed #c3cbd5;
+  border: 1.5px dashed var(--vc-input-border);
   border-radius: 6px;
-  color: #667085;
+  color: var(--vc-text-soft);
   font-size: 12px;
   cursor: pointer;
   transition: border-color 0.15s, background-color 0.15s, color 0.15s;
@@ -244,9 +305,9 @@
 
 .vector-control-dropzone:hover,
 .vector-control-dropzone.dragover {
-  border-color: #4a90d9;
-  background: rgba(74, 144, 217, 0.06);
-  color: #4a90d9;
+  border-color: var(--vc-accent);
+  background: var(--vc-accent-soft);
+  color: var(--vc-accent);
 }
 
 .vector-control-svg-icon {
@@ -276,13 +337,13 @@
 /* Status line */
 .vector-control-status {
   font-size: 11px;
-  color: #4a90d9;
+  color: var(--vc-accent);
   padding: 4px 2px;
   overflow-wrap: break-word;
 }
 
 .vector-control-status.error {
-  color: #d9534a;
+  color: var(--vc-error);
 }
 
 /* Section title */
@@ -291,7 +352,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #98a2b3;
+  color: var(--vc-muted);
   margin-bottom: 6px;
 }
 
@@ -304,16 +365,16 @@
 
 .vector-control-empty {
   font-size: 12px;
-  color: #98a2b3;
+  color: var(--vc-muted);
   text-align: center;
   padding: 10px 0;
 }
 
 .vector-control-layer-item {
-  border: 1px solid #e9edf2;
+  border: 1px solid var(--vc-border-soft);
   border-radius: 6px;
   padding: 6px;
-  background: #fafbfc;
+  background: var(--vc-item-bg);
 }
 
 .vector-control-layer-row {
@@ -331,7 +392,7 @@
 .vector-control-layer-name {
   font-size: 12px;
   font-weight: 500;
-  color: #344054;
+  color: var(--vc-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -339,7 +400,7 @@
 
 .vector-control-layer-meta {
   font-size: 10px;
-  color: #98a2b3;
+  color: var(--vc-muted);
 }
 
 .vector-control-layer-actions {
@@ -358,22 +419,22 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #667085;
+  color: var(--vc-text-soft);
   cursor: pointer;
   padding: 0;
   transition: background-color 0.15s, color 0.15s;
 }
 
 .vector-control-icon-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #1f2a37;
+  background: var(--vc-hover);
+  color: var(--vc-text-strong);
 }
 
 /* Style editor */
 .vector-control-style-editor {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid #e9edf2;
+  border-top: 1px solid var(--vc-border-soft);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -384,7 +445,7 @@
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: #475467;
+  color: var(--vc-text-soft);
 }
 
 .vector-control-style-label {
@@ -395,7 +456,7 @@
   width: 36px;
   height: 22px;
   padding: 0;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--vc-input-border);
   border-radius: 4px;
   background: none;
   cursor: pointer;
@@ -404,22 +465,96 @@
 .vector-control-range {
   flex: 1 1 auto;
   min-width: 0;
-  accent-color: #4a90d9;
+  accent-color: var(--vc-accent);
 }
 
 .vector-control-range-value {
   flex: 0 0 28px;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: #667085;
+  color: var(--vc-text-soft);
 }
 
 .vector-control-select {
   flex: 1 1 auto;
   font-size: 11px;
   padding: 3px 6px;
-  border: 1px solid #d0d5dd;
+  border: 1px solid var(--vc-input-border);
   border-radius: 4px;
-  background: #fff;
-  color: #344054;
+  background: var(--vc-input-bg);
+  color: var(--vc-text);
+}
+
+/* Attribute picker popup */
+.vector-control-popup {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  color: var(--vc-text);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.vector-control-popup-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--vc-text-strong);
+}
+
+.vector-control-popup-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.vector-control-popup-table td {
+  padding: 2px 8px 2px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--vc-border-soft);
+  overflow-wrap: anywhere;
+}
+
+.vector-control-popup-table tr:last-child td {
+  border-bottom: none;
+}
+
+.vector-control-popup-key {
+  font-weight: 500;
+  color: var(--vc-text-soft);
+  white-space: nowrap;
+}
+
+.vector-control-popup-empty {
+  color: var(--vc-muted);
+}
+
+/* Theme the MapLibre popup chrome around our content in dark mode */
+@media (prefers-color-scheme: dark) {
+  .maplibregl-popup:has(.vector-control-popup) .maplibregl-popup-content {
+    background: #1f2937;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+  }
+
+  .maplibregl-popup:has(.vector-control-popup) .maplibregl-popup-close-button {
+    color: #8b96a5;
+  }
+
+  .maplibregl-popup-anchor-top:has(.vector-control-popup) .maplibregl-popup-tip,
+  .maplibregl-popup-anchor-top-left:has(.vector-control-popup) .maplibregl-popup-tip,
+  .maplibregl-popup-anchor-top-right:has(.vector-control-popup) .maplibregl-popup-tip {
+    border-bottom-color: #1f2937;
+  }
+
+  .maplibregl-popup-anchor-bottom:has(.vector-control-popup) .maplibregl-popup-tip,
+  .maplibregl-popup-anchor-bottom-left:has(.vector-control-popup) .maplibregl-popup-tip,
+  .maplibregl-popup-anchor-bottom-right:has(.vector-control-popup) .maplibregl-popup-tip {
+    border-top-color: #1f2937;
+  }
+
+  .maplibregl-popup-anchor-left:has(.vector-control-popup) .maplibregl-popup-tip {
+    border-right-color: #1f2937;
+  }
+
+  .maplibregl-popup-anchor-right:has(.vector-control-popup) .maplibregl-popup-tip {
+    border-left-color: #1f2937;
+  }
 }

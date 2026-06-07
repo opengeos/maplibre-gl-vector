@@ -1,4 +1,4 @@
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import type {
   RenderMode,
@@ -24,6 +24,7 @@ import {
 import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../tiles/protocol';
 import { summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
 import { generateId } from '../utils/helpers';
+import { getMaplibre } from '../utils/maplibre';
 
 /**
  * Emits a control event with optional layer/error context.
@@ -55,6 +56,19 @@ interface LayerRecord {
    * from the public layer id, which can repeat across controls.
    */
   providerKey?: string;
+  /** Existing map layer id this layer is inserted before */
+  beforeId?: string;
+  /** Whether clicking a feature opens an attribute popup */
+  picker: boolean;
+  /** Per-map-layer picker handlers, for cleanup */
+  pickerHandlers?: PickerHandler[];
+}
+
+interface PickerHandler {
+  layerId: string;
+  click: (e: MapLayerMouseEvent) => void;
+  enter: () => void;
+  leave: () => void;
 }
 
 const DEFAULT_MAX_TILE_ZOOM = 16;
@@ -81,6 +95,7 @@ export class LayerManager {
   private _emit: LayerManagerEmitter;
   private _getEngine: EngineProvider;
   private _records = new Map<string, LayerRecord>();
+  private _popup?: { remove(): void };
 
   /**
    * Creates a layer manager.
@@ -147,6 +162,8 @@ export class LayerManager {
       source,
       sourceLayer: options.sourceLayer,
       fileName: typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+      beforeId: options.beforeId ?? this._options.beforeId,
+      picker: options.picker ?? this._options.enablePicker ?? true,
     };
 
     this._emit('loading', { message: `Loading ${name}...` });
@@ -180,6 +197,7 @@ export class LayerManager {
     const record = this._records.get(id);
     if (!record) return;
 
+    this._detachPicker(record);
     removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
     if (record.providerKey) unregisterTileProvider(record.providerKey);
     if (record.tableName) {
@@ -264,6 +282,7 @@ export class LayerManager {
     this._emit('loading', { message: `Switching ${record.info.name} to ${target}...` });
 
     try {
+      this._detachPicker(record);
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
       if (record.providerKey) unregisterTileProvider(record.providerKey);
       record.info.layerIds = [];
@@ -288,10 +307,13 @@ export class LayerManager {
    */
   dispose(): void {
     for (const record of this._records.values()) {
+      this._detachPicker(record);
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
       if (record.providerKey) unregisterTileProvider(record.providerKey);
     }
     this._records.clear();
+    this._popup?.remove();
+    this._popup = undefined;
   }
 
   /**
@@ -327,7 +349,9 @@ export class LayerManager {
       geometryType: summary.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      beforeId: record.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -412,7 +436,9 @@ export class LayerManager {
       style: record.info.style,
       visible: record.info.visible,
       sourceLayer: id,
+      beforeId: record.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -439,7 +465,9 @@ export class LayerManager {
       geometryType: record.info.geometryType,
       style: record.info.style,
       visible: record.info.visible,
+      beforeId: record.beforeId,
     });
+    this._attachPicker(record);
   }
 
   /**
@@ -467,20 +495,118 @@ export class LayerManager {
 
   /**
    * Converts a data source to something the engine can register
-   * (GeoJSON objects become Blobs).
+   * (GeoJSON objects and data: URLs become Blobs - DuckDB/GDAL cannot
+   * fetch data: URLs).
    */
   private async _engineSource(source: VectorDataSource): Promise<string | File | Blob> {
-    if (typeof source === 'string') return source;
+    if (typeof source === 'string') {
+      if (source.startsWith('data:')) {
+        return (await fetch(source)).blob();
+      }
+      return source;
+    }
     if (typeof Blob !== 'undefined' && source instanceof Blob) return source;
     return new Blob([JSON.stringify(source)], { type: 'application/geo+json' });
   }
 
   /**
-   * Picks a registration file name for sources without one.
+   * Picks a registration file name for sources without one, using an
+   * extension matching the format so readers can sniff the type.
    */
   private _defaultFileName(record: LayerRecord): string {
-    const ext = record.info.format === 'geojson' ? 'geojson' : 'bin';
+    const extensions: Record<string, string> = {
+      geojson: 'geojson',
+      geoparquet: 'parquet',
+      geopackage: 'gpkg',
+      shapefile: 'zip',
+      flatgeobuf: 'fgb',
+      csv: 'csv',
+    };
+    const format = record.info.format;
+    const ext = extensions[format] ?? (format !== 'unknown' ? format : 'bin');
     return `${tableNameFor(record.info.id)}.${ext}`;
+  }
+
+  /**
+   * Attaches click-to-inspect handlers to a layer's map layers,
+   * opening a popup with the clicked feature's attributes.
+   */
+  private _attachPicker(record: LayerRecord): void {
+    if (!record.picker) return;
+    record.pickerHandlers = record.info.layerIds.map((layerId) => {
+      const click = (e: MapLayerMouseEvent) => {
+        const feature = e.features?.[0];
+        if (feature) void this._showPopup(e.lngLat, record.info.name, feature.properties ?? {});
+      };
+      const enter = () => {
+        this._map.getCanvas().style.cursor = 'pointer';
+      };
+      const leave = () => {
+        this._map.getCanvas().style.cursor = '';
+      };
+      this._map.on('click', layerId, click);
+      this._map.on('mouseenter', layerId, enter);
+      this._map.on('mouseleave', layerId, leave);
+      return { layerId, click, enter, leave };
+    });
+  }
+
+  /**
+   * Removes the picker handlers of a layer.
+   */
+  private _detachPicker(record: LayerRecord): void {
+    for (const handler of record.pickerHandlers ?? []) {
+      this._map.off('click', handler.layerId, handler.click);
+      this._map.off('mouseenter', handler.layerId, handler.enter);
+      this._map.off('mouseleave', handler.layerId, handler.leave);
+    }
+    record.pickerHandlers = undefined;
+  }
+
+  /**
+   * Opens (or replaces) the attribute popup for a clicked feature.
+   * Content is built with textContent, so attribute values are inert.
+   */
+  private async _showPopup(
+    lngLat: { lng: number; lat: number },
+    layerName: string,
+    properties: Record<string, unknown>,
+  ): Promise<void> {
+    const container = document.createElement('div');
+    container.className = 'vector-control-popup';
+
+    const title = document.createElement('div');
+    title.className = 'vector-control-popup-title';
+    title.textContent = layerName;
+    container.appendChild(title);
+
+    const entries = Object.entries(properties);
+    if (entries.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'vector-control-popup-empty';
+      empty.textContent = 'No attributes';
+      container.appendChild(empty);
+    } else {
+      const table = document.createElement('table');
+      table.className = 'vector-control-popup-table';
+      for (const [key, value] of entries) {
+        const row = table.insertRow();
+        const keyCell = row.insertCell();
+        keyCell.className = 'vector-control-popup-key';
+        keyCell.textContent = key;
+        const valueCell = row.insertCell();
+        valueCell.textContent = value === null || value === undefined ? '' : String(value);
+      }
+      container.appendChild(table);
+    }
+
+    const maplibre = await getMaplibre();
+    this._popup?.remove();
+    const popup = new maplibre.Popup({ closeButton: true, maxWidth: '280px' });
+    popup.setLngLat([lngLat.lng, lngLat.lat]);
+    popup.setDOMContent(container);
+    popup.addTo(this._map);
+    this._popup = popup;
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {

@@ -9,12 +9,13 @@ A MapLibre GL JS plugin for visualizing vector data in many formats - GeoJSON, G
 
 ## Features
 
-- **Many vector formats** - GeoJSON, GeoPackage, Shapefile (zipped), GeoParquet, FlatGeobuf, and CSV (WKT or lon/lat columns)
+- **Many vector formats** - GeoJSON, GeoPackage, Shapefile (zipped), GeoParquet, FlatGeobuf, CSV (WKT or lon/lat columns), and every other format the spatial extension's GDAL build reads (KML, GML, MapInfo TAB, DXF, ...)
 - **Small data → GeoJSON** - small datasets are converted to GeoJSON and rendered with a `geojson` source
 - **Large data → dynamic tiles** - large datasets are rendered as MVT tiles generated client-side by DuckDB per `z/x/y`, served through a `duckdb://` protocol handler ([reference approach](https://gist.github.com/Maxxen/37e4a9f8595ea5e6a20c0c8fbbefe955))
 - **Auto mode with override** - render mode is picked automatically from configurable feature-count/byte-size thresholds, with per-layer and UI overrides
 - **Lazy DuckDB loading** - DuckDB-WASM (~15-25 MB gzipped) is loaded from the jsDelivr CDN only when a non-GeoJSON format or tile rendering is first requested; GeoJSON-only usage never downloads it
-- **Collapsible panel UI** - 29x29 toggle button matching MapLibre controls, with drag-and-drop file upload, URL loading, a layer list (visibility / zoom / remove), and a per-layer style editor
+- **Collapsible panel UI** - 29x29 toggle button matching MapLibre controls, with drag-and-drop file upload, URL loading, a layer list (visibility / zoom / remove), a per-layer style editor, dark mode support, and viewport-aware scrolling on small screens
+- **Attribute picker** - clicking a feature opens a popup with its attributes (`enablePicker`, on by default)
 - **Programmatic API** - `addData()`, `removeLayer()`, `setLayerStyle()`, `setRenderMode()`, events, and more
 - **React support** - `VectorControlReact` wrapper and `useVectorState` hook
 - **GeoLibre plugin bundle** - builds a zip loadable by GeoLibre Desktop
@@ -36,7 +37,7 @@ import "maplibre-gl-vector/style.css";
 
 const map = new maplibregl.Map({
   container: "map",
-  style: "https://demotiles.maplibre.org/style.json",
+  style: "https://tiles.openfreemap.org/styles/positron",
   center: [0, 0],
   zoom: 2,
 });
@@ -77,7 +78,7 @@ function App() {
     if (!mapContainer.current) return;
     const mapInstance = new maplibregl.Map({
       container: mapContainer.current,
-      style: "https://demotiles.maplibre.org/style.json",
+      style: "https://tiles.openfreemap.org/styles/positron",
       center: [0, 0],
       zoom: 2,
     });
@@ -127,6 +128,20 @@ WHERE ST_Intersects(geom_3857, ST_TileEnvelope(z, x, y));
 
 On DuckDB builds without `ST_AsMVT`, the plugin falls back to encoding tiles in JavaScript with `geojson-vt` + `vt-pbf` (also lazy-loaded).
 
+### Size thresholds
+
+In the default `'auto'` render mode, a dataset is rendered as **dynamic tiles** when it exceeds **50,000 features** or **25 MB** (whichever trips first); otherwise it is converted to GeoJSON. Both limits are configurable, and a per-layer `renderMode` always wins:
+
+```typescript
+const control = new VectorControl({
+  // Switch to tiles above 10k features or 5 MB
+  autoThreshold: { featureCount: 10_000, byteSize: 5 * 1024 * 1024 },
+});
+
+// Or bypass the thresholds for one layer
+await control.addData(url, { renderMode: "tiles" });
+```
+
 ## Supported formats
 
 | Format | Extensions | Reader | Local files | URLs |
@@ -137,8 +152,9 @@ On DuckDB builds without `ST_AsMVT`, the plugin falls back to encoding tiles in 
 | Shapefile | `.zip` (zipped), `.shp` | `ST_Read` (GDAL, `/vsizip/`) | ✅ | ✅ |
 | FlatGeobuf | `.fgb` | `ST_Read` (GDAL) | ✅ | ✅ |
 | CSV | `.csv`, `.tsv` | `read_csv` + WKT or lon/lat columns | ✅ | ✅ |
+| Anything GDAL reads | `.kml`, `.gml`, `.tab`, `.dxf`, ... | `ST_Read` (GDAL) | ✅ | ✅ |
 
-Remote URLs must be served with CORS enabled. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
+Extensions without a dedicated reader are passed straight to `ST_Read`, so any vector format the spatial extension's GDAL build supports will load. Remote URLs must be served with CORS enabled. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
 
 ## API
 
@@ -157,6 +173,8 @@ Remote URLs must be served with CORS enabled. CSV files need either a WKT column
 | `defaultRenderMode` | `'auto' \| 'geojson' \| 'tiles'` | `'auto'` | Default render mode for new layers |
 | `maxTileZoom` | `number` | `16` | Maximum zoom for dynamic tile generation |
 | `attribution` | `string` | - | Attribution attached to created sources |
+| `beforeId` | `string` | - | Existing map layer id new layers are inserted before (e.g. a label layer) |
+| `enablePicker` | `boolean` | `true` | Click a feature to open a popup with its attributes |
 
 #### Data Methods
 
@@ -180,6 +198,8 @@ Remote URLs must be served with CORS enabled. CSV files need either a WKT column
 | `style` | `Partial<VectorLayerStyle>` | defaults | Initial style overrides |
 | `sourceLayer` | `string` | first layer | Layer name inside multi-layer containers (e.g. GeoPackage) |
 | `format` | `VectorFormat` | detected | Explicit format override |
+| `beforeId` | `string` | control option | Map layer id this layer is inserted before |
+| `picker` | `boolean` | control option | Attribute popup on feature click |
 
 #### Panel Methods
 

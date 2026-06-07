@@ -36,8 +36,6 @@ export interface PanelUIOptions {
   control: PanelHost;
 }
 
-const ACCEPT_EXTENSIONS = '.geojson,.json,.gpkg,.shp,.zip,.parquet,.geoparquet,.pq,.fgb,.csv,.tsv';
-
 /**
  * Renders the vector control panel UI (file/URL loading, status line,
  * and the layer list) and wires it to the control.
@@ -59,9 +57,11 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   dropText.textContent = 'Drop file or click to browse';
   dropZone.appendChild(dropText);
 
+  // No accept filter: every format the spatial extension's GDAL build
+  // can read (kml, gml, tab, dxf, ...) is fair game, not just the
+  // extensions with dedicated readers.
   const fileInput = el('input') as HTMLInputElement;
   fileInput.type = 'file';
-  fileInput.accept = ACCEPT_EXTENSIONS;
   fileInput.multiple = true;
   fileInput.style.display = 'none';
 

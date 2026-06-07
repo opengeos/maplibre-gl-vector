@@ -1,5 +1,6 @@
 // React entry point
 export { VectorControlReact } from './lib/core/VectorControlReact';
+export type { VectorControlReactComponentProps } from './lib/core/VectorControlReact';
 
 // React hooks
 export { useVectorState } from './lib/hooks';
