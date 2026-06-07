@@ -28,7 +28,11 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 /**
  * Creates an inline SVG icon element from path markup.
  *
- * @param paths - SVG inner markup (path/rect/circle elements)
+ * SECURITY: `paths` is inserted into innerHTML without sanitization.
+ * Only pass trusted, static SVG markup such as the {@link ICONS}
+ * constants - never user-generated content.
+ *
+ * @param paths - Trusted SVG inner markup (path/rect/circle elements)
  * @param size - Icon size in pixels
  * @returns A span wrapping the SVG
  */

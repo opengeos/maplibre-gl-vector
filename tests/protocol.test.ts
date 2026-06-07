@@ -24,15 +24,30 @@ describe('tileUrlFor', () => {
 
 describe('parseTileUrl', () => {
   it('parses z/x/y URLs', () => {
-    expect(parseTileUrl('duckdb://layer-1/3/2/1')).toEqual({ layerId: 'layer-1', z: 3, x: 2, y: 1 });
+    expect(parseTileUrl('duckdb://layer-1/3/2/1')).toEqual({
+      providerKey: 'layer-1',
+      z: 3,
+      x: 2,
+      y: 1,
+    });
   });
 
   it('accepts a .pbf suffix', () => {
     expect(parseTileUrl('duckdb://layer-1/3/2/1.pbf')).toEqual({
-      layerId: 'layer-1',
+      providerKey: 'layer-1',
       z: 3,
       x: 2,
       y: 1,
+    });
+  });
+
+  it('round-trips keys with reserved characters', () => {
+    const url = tileUrlFor('weird/key with spaces').replace('{z}/{x}/{y}', '1/2/3');
+    expect(parseTileUrl(url)).toEqual({
+      providerKey: 'weird/key with spaces',
+      z: 1,
+      x: 2,
+      y: 3,
     });
   });
 

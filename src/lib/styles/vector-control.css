@@ -46,7 +46,7 @@
   width: 22px;
   height: 22px;
   display: block;
-  stroke: currentColor;
+  stroke: currentcolor;
   fill: none;
 }
 
@@ -278,7 +278,7 @@
   font-size: 11px;
   color: #4a90d9;
   padding: 4px 2px;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .vector-control-status.error {

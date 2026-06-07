@@ -50,6 +50,11 @@ interface LayerRecord {
   fileName?: string;
   /** Set once the source has been ingested into the engine */
   tableName?: string;
+  /**
+   * Globally unique key in the duckdb:// provider registry. Distinct
+   * from the public layer id, which can repeat across controls.
+   */
+  providerKey?: string;
 }
 
 const DEFAULT_MAX_TILE_ZOOM = 16;
@@ -176,7 +181,7 @@ export class LayerManager {
     if (!record) return;
 
     removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
-    unregisterTileProvider(id);
+    if (record.providerKey) unregisterTileProvider(record.providerKey);
     if (record.tableName) {
       const tableName = record.tableName;
       this._getEngine()
@@ -260,7 +265,7 @@ export class LayerManager {
 
     try {
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
-      unregisterTileProvider(id);
+      if (record.providerKey) unregisterTileProvider(record.providerKey);
       record.info.layerIds = [];
 
       if (target === 'tiles') {
@@ -284,7 +289,7 @@ export class LayerManager {
   dispose(): void {
     for (const record of this._records.values()) {
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
-      unregisterTileProvider(record.info.id);
+      if (record.providerKey) unregisterTileProvider(record.providerKey);
     }
     this._records.clear();
   }
@@ -386,13 +391,17 @@ export class LayerManager {
     await engine.prepareTiles(tableName);
 
     const id = record.info.id;
-    await registerTileProvider(id, (z, x, y, signal) =>
+    // The provider registry is process-wide; key it by a generated
+    // unique value so equal layer ids on two controls cannot collide.
+    const providerKey = record.providerKey ?? generateId(`${id}-tiles`);
+    record.providerKey = providerKey;
+    await registerTileProvider(providerKey, (z, x, y, signal) =>
       engine.getTile(tableName, id, z, x, y, signal),
     );
 
     record.info.renderMode = 'tiles';
     addVectorTileSource(this._map, id, {
-      tileUrl: tileUrlFor(id),
+      tileUrl: tileUrlFor(providerKey),
       maxzoom: this._options.maxTileZoom ?? DEFAULT_MAX_TILE_ZOOM,
       bounds: record.info.bbox,
       attribution: this._options.attribution,

@@ -17,6 +17,7 @@ import {
   geometryTypesQuery,
   mvtTileQuery,
   prepareTilesSql,
+  quoteIdent,
   readerFor,
   summaryQuery,
   tileFeaturesQuery,
@@ -253,7 +254,7 @@ export class DuckDBEngine implements IEngine {
   dropTable(tableName: string): Promise<void> {
     return this._queue.enqueue(async () => {
       const meta = this._tables.get(tableName);
-      await this._loaded.conn.query(`DROP TABLE IF EXISTS "${tableName}"`);
+      await this._loaded.conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
       if (meta?.registeredFile) {
         await this._loaded.db.dropFile(meta.registeredFile).catch(() => undefined);
       }
@@ -381,7 +382,7 @@ export class DuckDBEngine implements IEngine {
    * Describes the columns of an existing table.
    */
   private async _describeTable(tableName: string): Promise<ColumnInfo[]> {
-    return this._describeReader(`"${tableName}"`);
+    return this._describeReader(quoteIdent(tableName));
   }
 
   /**

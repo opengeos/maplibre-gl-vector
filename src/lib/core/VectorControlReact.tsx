@@ -58,6 +58,13 @@ export function VectorControlReact({
 }: VectorControlReactComponentProps): null {
   const controlRef = useRef<VectorControl | null>(null);
 
+  // Hold the latest handler props in refs so the handlers registered on
+  // mount never go stale when the parent passes new functions.
+  const handlersRef = useRef({ onStateChange, onLayerAdded, onLayerRemoved, onError });
+  useEffect(() => {
+    handlersRef.current = { onStateChange, onLayerAdded, onLayerRemoved, onError };
+  });
+
   useImperativeHandle<VectorControl | null, VectorControl | null>(
     externalRef,
     () => controlRef.current,
@@ -71,27 +78,19 @@ export function VectorControlReact({
     const control = new VectorControl(options);
     controlRef.current = control;
 
-    // Register event handlers if provided
-    if (onStateChange) {
-      control.on("statechange", (event) => {
-        onStateChange(event.state);
-      });
-    }
-    if (onLayerAdded) {
-      control.on("layeradded", (event) => {
-        if (event.layer) onLayerAdded(event.layer);
-      });
-    }
-    if (onLayerRemoved) {
-      control.on("layerremoved", (event) => {
-        if (event.layer) onLayerRemoved(event.layer);
-      });
-    }
-    if (onError) {
-      control.on("error", (event) => {
-        if (event.error) onError(event.error);
-      });
-    }
+    // Register event handlers calling through the refs
+    control.on("statechange", (event) => {
+      handlersRef.current.onStateChange?.(event.state);
+    });
+    control.on("layeradded", (event) => {
+      if (event.layer) handlersRef.current.onLayerAdded?.(event.layer);
+    });
+    control.on("layerremoved", (event) => {
+      if (event.layer) handlersRef.current.onLayerRemoved?.(event.layer);
+    });
+    control.on("error", (event) => {
+      if (event.error) handlersRef.current.onError?.(event.error);
+    });
 
     // Add control to map
     map.addControl(control, options.position || "top-right");

@@ -97,7 +97,9 @@ describe('summaryQuery', () => {
     const sql = summaryQuery('t1');
     expect(sql).toContain('count(*)');
     expect(sql).toContain('ST_XMin(ST_Extent_Agg(geom))');
-    expect(sql).toContain('ST_XMin');
+    expect(sql).toContain('ST_YMin(ST_Extent_Agg(geom))');
+    expect(sql).toContain('ST_XMax(ST_Extent_Agg(geom))');
+    expect(sql).toContain('ST_YMax(ST_Extent_Agg(geom))');
   });
 });
 

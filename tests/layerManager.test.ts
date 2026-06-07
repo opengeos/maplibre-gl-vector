@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import { LayerManager, tableNameFor } from '../src/lib/core/LayerManager';
 import type { IEngine } from '../src/lib/engine/types';
-import { hasTileProvider, unregisterTileProvider } from '../src/lib/tiles/protocol';
+import { hasTileProvider } from '../src/lib/tiles/protocol';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const POLYGON_FC: FeatureCollection = {
   type: 'FeatureCollection',
@@ -114,15 +118,22 @@ describe('LayerManager GeoJSON path', () => {
 
   it('emits error and rethrows on invalid sources', async () => {
     const { manager, emit } = createManager();
-    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' }),
+    );
     await expect(manager.addData('https://x.com/missing.geojson')).rejects.toThrow(/404/);
     expect(emit).toHaveBeenCalledWith('error', expect.objectContaining({ error: expect.any(Error) }));
   });
 });
 
-describe('LayerManager engine path', () => {
-  beforeEach(() => unregisterTileProvider('big'));
+/** Extracts the provider registry key from a duckdb:// tile URL template. */
+function providerKeyFromSource(spec: { tiles?: string[] }): string {
+  const match = /^duckdb:\/\/([^/]+)\//.exec(spec.tiles?.[0] ?? '');
+  return match ? decodeURIComponent(match[1]) : '';
+}
 
+describe('LayerManager engine path', () => {
   it('renders small engine data as GeoJSON', async () => {
     const engine = createMockEngine();
     const { manager, map } = createManager({}, engine);
@@ -151,20 +162,21 @@ describe('LayerManager engine path', () => {
 
     expect(info.renderMode).toBe('tiles');
     expect(engine.prepareTiles).toHaveBeenCalledWith('t_big');
-    expect(hasTileProvider('big')).toBe(true);
-    expect(map.addSource).toHaveBeenCalledWith(
-      'big-source',
-      expect.objectContaining({
-        type: 'vector',
-        tiles: ['duckdb://big/{z}/{x}/{y}'],
-        bounds: [0, 0, 10, 10],
-      }),
-    );
+    const sourceSpec = map.addSource.mock.calls.find((c) => c[0] === 'big-source')?.[1] as {
+      type: string;
+      tiles: string[];
+      bounds: number[];
+    };
+    expect(sourceSpec).toMatchObject({ type: 'vector', bounds: [0, 0, 10, 10] });
+    // Tile URL uses a generated provider key, not the public layer id
+    expect(sourceSpec.tiles[0]).toMatch(/^duckdb:\/\/big-tiles-[a-z0-9]+\/\{z\}\/\{x\}\/\{y\}$/);
+    const providerKey = providerKeyFromSource(sourceSpec);
+    expect(hasTileProvider(providerKey)).toBe(true);
     // source-layer must match the layer id used in the tile query
     expect(map.addLayer).toHaveBeenCalledWith(expect.objectContaining({ 'source-layer': 'big' }));
 
     manager.removeLayer('big');
-    expect(hasTileProvider('big')).toBe(false);
+    expect(hasTileProvider(providerKey)).toBe(false);
     // dropTable is fire-and-forget through the async engine provider
     await vi.waitFor(() => expect(engine.dropTable).toHaveBeenCalledWith('t_big'));
   });
@@ -177,7 +189,7 @@ describe('LayerManager engine path', () => {
       renderMode: 'tiles',
     });
     expect(info.renderMode).toBe('tiles');
-    unregisterTileProvider('forced');
+    manager.removeLayer('forced');
   });
 });
 
@@ -242,11 +254,15 @@ describe('LayerManager layer operations', () => {
     await manager.setRenderMode('poly', 'tiles');
     expect(manager.getLayer('poly')?.renderMode).toBe('tiles');
     expect(engine.ingest).toHaveBeenCalled();
-    expect(hasTileProvider('poly')).toBe(true);
+    const sourceSpec = map.addSource.mock.calls.find(
+      (c) => c[0] === 'poly-source' && (c[1] as { type: string }).type === 'vector',
+    )?.[1] as { tiles?: string[] };
+    const providerKey = providerKeyFromSource(sourceSpec);
+    expect(hasTileProvider(providerKey)).toBe(true);
 
     await manager.setRenderMode('poly', 'geojson');
     expect(manager.getLayer('poly')?.renderMode).toBe('geojson');
-    expect(hasTileProvider('poly')).toBe(false);
+    expect(hasTileProvider(providerKey)).toBe(false);
     expect(engine.exportGeoJSON).toHaveBeenCalled();
     expect(map.addSource).toHaveBeenLastCalledWith(
       'poly-source',

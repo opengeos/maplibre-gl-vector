@@ -60,20 +60,23 @@ function getProtocolApi(): Promise<ProtocolApi> {
 }
 
 /**
- * Builds the tile URL template for a vector layer.
+ * Builds the tile URL template for a registered tile provider.
  *
- * @param layerId - The vector layer id
+ * The key is URI-encoded so it round-trips through parseTileUrl even
+ * when it contains reserved characters.
+ *
+ * @param providerKey - The provider registry key
  * @returns The duckdb:// tile URL template
  */
-export function tileUrlFor(layerId: string): string {
-  return `${TILE_PROTOCOL}://${layerId}/{z}/{x}/{y}`;
+export function tileUrlFor(providerKey: string): string {
+  return `${TILE_PROTOCOL}://${encodeURIComponent(providerKey)}/{z}/{x}/{y}`;
 }
 
 /**
  * Parsed components of a duckdb:// tile URL.
  */
 export interface ParsedTileUrl {
-  layerId: string;
+  providerKey: string;
   z: number;
   x: number;
   y: number;
@@ -91,7 +94,7 @@ export function parseTileUrl(url: string): ParsedTileUrl | null {
   );
   if (!match) return null;
   return {
-    layerId: match[1],
+    providerKey: decodeURIComponent(match[1]),
     z: Number(match[2]),
     x: Number(match[3]),
     y: Number(match[4]),
@@ -114,24 +117,30 @@ export async function loadTile(url: string, signal: AbortSignal): Promise<Uint8A
     throw new Error(`Invalid ${TILE_PROTOCOL}:// tile URL: ${url}`);
   }
 
-  const provider = providers.get(parsed.layerId);
+  const provider = providers.get(parsed.providerKey);
   if (!provider) return new Uint8Array(0);
 
   return provider(parsed.z, parsed.x, parsed.y, signal);
 }
 
 /**
- * Registers the tile provider for a vector layer, installing the
- * duckdb:// protocol handler on first use.
+ * Registers a tile provider, installing the duckdb:// protocol handler
+ * on first use.
+ *
+ * The registry is process-wide, so callers must pass a globally unique
+ * key (not the public layer id, which can repeat across controls).
  *
  * Resolves once the protocol handler is installed, so a tile source
  * added afterwards is guaranteed to find it.
  *
- * @param layerId - The vector layer id
+ * @param providerKey - Globally unique provider registry key
  * @param provider - The tile provider
  */
-export async function registerTileProvider(layerId: string, provider: TileProvider): Promise<void> {
-  providers.set(layerId, provider);
+export async function registerTileProvider(
+  providerKey: string,
+  provider: TileProvider,
+): Promise<void> {
+  providers.set(providerKey, provider);
   if (!protocolRegistered) {
     const api = await getProtocolApi();
     if (!protocolRegistered) {
@@ -145,13 +154,13 @@ export async function registerTileProvider(layerId: string, provider: TileProvid
 }
 
 /**
- * Removes the tile provider for a vector layer, uninstalling the
- * protocol handler when no providers remain.
+ * Removes a tile provider, uninstalling the protocol handler when no
+ * providers remain.
  *
- * @param layerId - The vector layer id
+ * @param providerKey - The provider registry key
  */
-export function unregisterTileProvider(layerId: string): void {
-  providers.delete(layerId);
+export function unregisterTileProvider(providerKey: string): void {
+  providers.delete(providerKey);
   if (providers.size === 0 && protocolRegistered) {
     protocolRegistered = false;
     void getProtocolApi().then((api) => {
@@ -162,11 +171,11 @@ export function unregisterTileProvider(layerId: string): void {
 }
 
 /**
- * Returns whether a tile provider is registered for a layer.
+ * Returns whether a tile provider is registered for a key.
  *
- * @param layerId - The vector layer id
+ * @param providerKey - The provider registry key
  * @returns True when a provider is registered
  */
-export function hasTileProvider(layerId: string): boolean {
-  return providers.has(layerId);
+export function hasTileProvider(providerKey: string): boolean {
+  return providers.has(providerKey);
 }

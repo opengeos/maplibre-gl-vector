@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import type { VectorState } from '../core/types';
 
 /**
- * Default initial state for the plugin
+ * Default initial state for the vector control
  */
 const DEFAULT_STATE: VectorState = {
   collapsed: true,
@@ -12,7 +12,7 @@ const DEFAULT_STATE: VectorState = {
 };
 
 /**
- * Custom hook for managing plugin state in React applications.
+ * Custom hook for managing vector control state in React applications.
  *
  * This hook provides a simple way to track and update the state
  * of a VectorControl from React components.
@@ -20,7 +20,7 @@ const DEFAULT_STATE: VectorState = {
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { state, setCollapsed, setData, reset } = useVectorState();
+ *   const { state, setState, setCollapsed } = useVectorState();
  *
  *   return (
  *     <div>
