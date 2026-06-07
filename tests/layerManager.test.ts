@@ -458,4 +458,77 @@ describe('LayerManager layer operations', () => {
     expect(manager.getLayers()).toHaveLength(0);
     expect(emit).not.toHaveBeenCalled();
   });
+
+  it('describes the data source for persistence', async () => {
+    const { manager } = createManager();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify(POLYGON_FC) }),
+    );
+
+    const fromUrl = await manager.addData('https://x.com/data.geojson', { id: 'from-url' });
+    expect(fromUrl.source).toEqual({ kind: 'url', url: 'https://x.com/data.geojson' });
+
+    const fromFile = await manager.addData(new File(['x'], 'data.gpkg'), { id: 'from-file' });
+    expect(fromFile.source).toEqual({ kind: 'file', fileName: 'data.gpkg' });
+
+    const fromObject = await manager.addData(POLYGON_FC, { id: 'from-object' });
+    expect(fromObject.source).toEqual({ kind: 'geojson' });
+  });
+
+  it('records the sourceLayer of expanded container layers', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+    expect(manager.getLayer('city-roads')?.sourceLayer).toBe('roads');
+    expect(manager.getLayer('city-buildings')?.sourceLayer).toBe('buildings');
+  });
+
+  it('applies an initial master opacity to the created layers', async () => {
+    const { manager, map } = createManager();
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', opacity: 0.5 });
+
+    expect(info.opacity).toBe(0.5);
+    const fillSpec = map.addLayer.mock.calls.find((c) => c[0].id === 'poly-fill')?.[0] as {
+      paint: Record<string, number>;
+    };
+    expect(fillSpec.paint['fill-opacity']).toBe(0.4 * 0.5);
+    const outlineSpec = map.addLayer.mock.calls.find((c) => c[0].id === 'poly-outline')?.[0] as {
+      paint: Record<string, number>;
+    };
+    expect(outlineSpec.paint['line-opacity']).toBe(0.5);
+  });
+
+  it('updates the master opacity with setLayerOpacity', async () => {
+    const { manager, map, emit } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    emit.mockClear();
+
+    manager.setLayerOpacity('poly', 0.25);
+    expect(manager.getLayer('poly')?.opacity).toBe(0.25);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-fill', 'fill-opacity', 0.4 * 0.25);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-outline', 'line-opacity', 0.25);
+    expect(emit).toHaveBeenCalledWith(
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ opacity: 0.25 }) }),
+    );
+
+    // No-op when the opacity is unchanged
+    emit.mockClear();
+    manager.setLayerOpacity('poly', 0.25);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the master opacity applied through style patches', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', opacity: 0.5 });
+
+    manager.setLayerStyle('poly', { fillOpacity: 0.8 });
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-fill', 'fill-opacity', 0.8 * 0.5);
+    // The stored style keeps the unscaled value
+    expect(manager.getLayer('poly')?.style.fillOpacity).toBe(0.8);
+  });
 });

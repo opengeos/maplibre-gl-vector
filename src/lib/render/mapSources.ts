@@ -66,6 +66,8 @@ export interface AddLayersOptions {
   style: VectorLayerStyle;
   /** Whether the layer starts visible */
   visible: boolean;
+  /** Master opacity (0-1) multiplied into every style opacity */
+  opacity?: number;
   /** source-layer name for vector tile sources (omit for geojson) */
   sourceLayer?: string;
   /** Existing map layer id to insert the new layers before */
@@ -142,7 +144,7 @@ export function addVectorTileSource(
  * @returns The created map layer ids
  */
 export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): string[] {
-  const { layerId, geometryType, style, visible, sourceLayer, beforeId } = options;
+  const { layerId, geometryType, style, visible, opacity, sourceLayer, beforeId } = options;
   const sourceId = sourceIdFor(layerId);
   const suffixes = suffixesForGeometry(geometryType);
   const layerIds: string[] = [];
@@ -160,7 +162,7 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
         source: sourceId,
         ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
         filter: SUFFIX_FILTERS[suffix],
-        paint: buildPaint(suffix, style),
+        paint: buildPaint(suffix, style, opacity),
         layout: { visibility: visible ? 'visible' : 'none' },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any,

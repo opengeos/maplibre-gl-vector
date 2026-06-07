@@ -239,6 +239,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 - `setLayerVisibility(id, visible)` - Show/hide a layer
 - `zoomToLayer(id)` - Fit the map to a layer's extent
 - `setLayerStyle(id, style)` - Update colors, opacity, line width, circle radius
+- `setLayerOpacity(id, opacity)` - Master opacity (0-1) multiplied into every style opacity
 - `setRenderMode(id, mode)` - Switch between `'geojson'` and `'tiles'`
 - `setLayerPicker(id, enabled)` - Toggle the attribute popup (also a "Popup" checkbox in the panel)
 - `setLayerBeforeId(id, beforeId?)` - Move the layer before another map layer, or to the top (also a "Before" select in the panel)
@@ -251,6 +252,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `name` | `string` | file name | Display name |
 | `renderMode` | `'auto' \| 'geojson' \| 'tiles'` | `'auto'` | Per-layer render mode |
 | `visible` | `boolean` | `true` | Initial visibility |
+| `opacity` | `number` | `1` | Initial master opacity (0-1) multiplied into every style opacity |
 | `fitBounds` | `boolean` | `true` | Zoom to the layer after loading |
 | `style` | `Partial<VectorLayerStyle>` | defaults | Initial style overrides |
 | `sourceLayer` | `string` | all layers | Load only this layer from a multi-layer container (default expands every layer) |

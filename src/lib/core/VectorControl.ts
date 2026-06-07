@@ -256,6 +256,17 @@ export class VectorControl implements IControl {
   }
 
   /**
+   * Sets a layer's master opacity, multiplied into every style opacity
+   * (fill, circle, and line layers alike).
+   *
+   * @param id - The layer id
+   * @param opacity - The new opacity (0-1)
+   */
+  setLayerOpacity(id: string, opacity: number): void {
+    this._layerManager?.setLayerOpacity(id, opacity);
+  }
+
+  /**
    * Enables or disables the attribute popup for a layer.
    *
    * @param id - The layer id

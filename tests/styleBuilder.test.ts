@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   DEFAULT_STYLE,
+  applyOpacity,
   applyStyle,
   buildPaint,
+  clampOpacity,
   mapLayerId,
+  opacityToPaintOps,
   stylePatchToPaintOps,
 } from '../src/lib/render/styleBuilder';
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -17,7 +20,7 @@ describe('buildPaint', () => {
   });
 
   it('builds line paint for outline and line roles', () => {
-    const expected = { 'line-color': '#3388ff', 'line-width': 2 };
+    const expected = { 'line-color': '#3388ff', 'line-width': 2, 'line-opacity': 1 };
     expect(buildPaint('outline', DEFAULT_STYLE)).toEqual(expected);
     expect(buildPaint('line', DEFAULT_STYLE)).toEqual(expected);
   });
@@ -28,6 +31,26 @@ describe('buildPaint', () => {
       'circle-radius': 5,
       'circle-stroke-color': '#ffffff',
     });
+  });
+
+  it('multiplies the master opacity into every opacity property', () => {
+    expect(buildPaint('fill', DEFAULT_STYLE, 0.5)).toMatchObject({
+      'fill-opacity': DEFAULT_STYLE.fillOpacity * 0.5,
+    });
+    expect(buildPaint('line', DEFAULT_STYLE, 0.5)).toMatchObject({ 'line-opacity': 0.5 });
+    expect(buildPaint('circle', DEFAULT_STYLE, 0.5)).toMatchObject({
+      'circle-opacity': DEFAULT_STYLE.circleOpacity * 0.5,
+      'circle-stroke-opacity': 0.5,
+    });
+  });
+});
+
+describe('clampOpacity', () => {
+  it('clamps to [0, 1] and maps non-finite values to 1', () => {
+    expect(clampOpacity(-0.5)).toBe(0);
+    expect(clampOpacity(0.3)).toBe(0.3);
+    expect(clampOpacity(2)).toBe(1);
+    expect(clampOpacity(Number.NaN)).toBe(1);
   });
 });
 
@@ -60,6 +83,44 @@ describe('stylePatchToPaintOps', () => {
   it('ignores undefined values', () => {
     expect(stylePatchToPaintOps(info, {})).toEqual([]);
   });
+
+  it('multiplies opacity patches by the master opacity', () => {
+    expect(stylePatchToPaintOps(info, { fillOpacity: 0.8, circleOpacity: 0.6 }, 0.5)).toEqual([
+      { layerId: 'layer1-fill', property: 'fill-opacity', value: 0.4 },
+      { layerId: 'layer1-circle', property: 'circle-opacity', value: 0.3 },
+    ]);
+  });
+});
+
+describe('opacityToPaintOps', () => {
+  it('maps a master opacity change onto every opacity property', () => {
+    const info = {
+      id: 'layer1',
+      layerIds: ['layer1-fill', 'layer1-outline', 'layer1-line', 'layer1-circle'],
+    };
+    expect(opacityToPaintOps(info, DEFAULT_STYLE, 0.5)).toEqual([
+      {
+        layerId: 'layer1-fill',
+        property: 'fill-opacity',
+        value: DEFAULT_STYLE.fillOpacity * 0.5,
+      },
+      { layerId: 'layer1-outline', property: 'line-opacity', value: 0.5 },
+      { layerId: 'layer1-line', property: 'line-opacity', value: 0.5 },
+      {
+        layerId: 'layer1-circle',
+        property: 'circle-opacity',
+        value: DEFAULT_STYLE.circleOpacity * 0.5,
+      },
+      { layerId: 'layer1-circle', property: 'circle-stroke-opacity', value: 0.5 },
+    ]);
+  });
+
+  it('skips layers the vector layer does not have', () => {
+    const lineOnly = { id: 'rds', layerIds: ['rds-line'] };
+    expect(opacityToPaintOps(lineOnly, DEFAULT_STYLE, 0.25)).toEqual([
+      { layerId: 'rds-line', property: 'line-opacity', value: 0.25 },
+    ]);
+  });
 });
 
 describe('applyStyle', () => {
@@ -67,6 +128,18 @@ describe('applyStyle', () => {
     const map = { setPaintProperty: vi.fn() } as unknown as MapLibreMap;
     applyStyle(map, { id: 'a', layerIds: ['a-fill'] }, { fillOpacity: 0.9 });
     expect(map.setPaintProperty).toHaveBeenCalledExactlyOnceWith('a-fill', 'fill-opacity', 0.9);
+  });
+});
+
+describe('applyOpacity', () => {
+  it('calls setPaintProperty for each op', () => {
+    const map = { setPaintProperty: vi.fn() } as unknown as MapLibreMap;
+    applyOpacity(map, { id: 'a', layerIds: ['a-fill'] }, DEFAULT_STYLE, 0.5);
+    expect(map.setPaintProperty).toHaveBeenCalledExactlyOnceWith(
+      'a-fill',
+      'fill-opacity',
+      DEFAULT_STYLE.fillOpacity * 0.5,
+    );
   });
 });
 
