@@ -150,6 +150,20 @@ export interface VectorControlOptions {
    * @default 'https://example.com/data.parquet'
    */
   urlPlaceholder?: string;
+
+  /**
+   * Initial value of the panel's URL input, so a host can offer a
+   * ready-to-load sample dataset (the input clears after a successful
+   * load)
+   */
+  defaultUrl?: string;
+
+  /**
+   * Automatically load `defaultUrl` when the control is added to the
+   * map, as if the user had pressed Load (no-op without `defaultUrl`)
+   * @default false
+   */
+  autoLoad?: boolean;
 }
 
 /**

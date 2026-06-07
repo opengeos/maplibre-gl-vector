@@ -230,6 +230,8 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `enablePicker` | `boolean` | `true` | Click a feature to open a popup with its attributes |
 | `defaultIngestMode` | `'table' \| 'stream'` | `'table'` | Materialize into DuckDB or stream GeoParquet in place |
 | `urlPlaceholder` | `string` | `'https://example.com/data.parquet'` | Placeholder text for the panel's URL input |
+| `defaultUrl` | `string` | - | Initial value of the panel's URL input (a ready-to-load sample dataset) |
+| `autoLoad` | `boolean` | `false` | Load `defaultUrl` automatically when the control is added to the map |
 
 #### Data Methods
 
