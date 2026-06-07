@@ -147,7 +147,7 @@ export interface VectorControlOptions {
 
   /**
    * Placeholder text shown in the panel's URL input
-   * @default 'https://example.com/data.geojson'
+   * @default 'https://example.com/data.parquet'
    */
   urlPlaceholder?: string;
 }
