@@ -157,6 +157,7 @@ export class LayerManager {
         geometryType: 'unknown',
         visible,
         picker: options.picker ?? this._options.enablePicker ?? true,
+        ingestMode: options.ingestMode ?? this._options.defaultIngestMode ?? 'table',
         beforeId: options.beforeId ?? this._options.beforeId,
         style,
         sourceId: sourceIdFor(id),
@@ -492,8 +493,12 @@ export class LayerManager {
       format: record.info.format,
       sourceLayer: record.sourceLayer,
       fileName: record.fileName ?? this._defaultFileName(record),
+      mode: record.info.ingestMode,
     });
     record.tableName = summary.tableName;
+    // The engine falls back to a table for formats streaming
+    // does not apply to.
+    record.info.ingestMode = summary.streamed ? 'stream' : 'table';
     return summary;
   }
 

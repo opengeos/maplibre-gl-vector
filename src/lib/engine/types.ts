@@ -1,5 +1,5 @@
 import type { FeatureCollection } from 'geojson';
-import type { GeometryCategory, VectorFormat } from '../core/types';
+import type { GeometryCategory, IngestMode, VectorFormat } from '../core/types';
 import type { Bbox } from '../utils/geometry';
 
 /**
@@ -12,6 +12,8 @@ export interface IngestOptions {
   sourceLayer?: string;
   /** Original file name, used to pick a registration name */
   fileName?: string;
+  /** Requested ingest mode (streaming applies to GeoParquet only) */
+  mode?: IngestMode;
 }
 
 /**
@@ -28,6 +30,8 @@ export interface IngestSummary {
   geometryType: GeometryCategory;
   /** Source size in bytes, when known */
   byteSize?: number;
+  /** Whether the source is streamed in place instead of materialized */
+  streamed?: boolean;
 }
 
 /**

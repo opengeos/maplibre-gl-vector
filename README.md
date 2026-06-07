@@ -128,6 +128,23 @@ WHERE ST_Intersects(geom_3857, ST_TileEnvelope(z, x, y));
 
 On DuckDB builds without `ST_AsMVT`, the plugin falls back to encoding tiles in JavaScript with `geojson-vt` + `vt-pbf` (also lazy-loaded).
 
+### Streaming large GeoParquet
+
+By default a dataset is **materialized** into an in-memory DuckDB table (plus an EPSG:3857 column and R-Tree index in tiles mode) - fastest per-tile queries, but peak memory roughly equals the dataset size. For large GeoParquet you can instead **stream it in place**:
+
+```typescript
+await control.addData("https://example.com/buildings.parquet", {
+  ingestMode: "stream",
+  renderMode: "tiles",
+});
+```
+
+(or check **"Stream GeoParquet (no copy)"** in the panel before loading)
+
+In streaming mode the file is wrapped in a view and queried directly - nothing is copied into the database. Remote files are read with **HTTP range requests**, and when the file has a GeoParquet 1.1 bbox covering column (named `bbox` or anything ending in `_bbox`, e.g. `geometry_bbox`), the per-tile filter is pushed into parquet row-group statistics so only the row groups intersecting each tile are downloaded. The layer summary (count/extent) also comes from the bbox stats instead of a geometry scan.
+
+Trade-offs: each tile re-reads and reprojects matching rows (slower than the indexed table), and files without a bbox covering column or spatial ordering fall back to scanning per tile. Streaming applies to GeoParquet only; other formats ignore the option and materialize.
+
 ### Size thresholds
 
 In the default `'auto'` render mode, a dataset is rendered as **dynamic tiles** when it exceeds **50,000 features** or **25 MB** (whichever trips first); otherwise it is converted to GeoJSON. Both limits are configurable, and a per-layer `renderMode` always wins:
@@ -187,6 +204,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `attribution` | `string` | - | Attribution attached to created sources |
 | `beforeId` | `string` | - | Existing map layer id new layers are inserted before (e.g. a label layer) |
 | `enablePicker` | `boolean` | `true` | Click a feature to open a popup with its attributes |
+| `defaultIngestMode` | `'table' \| 'stream'` | `'table'` | Materialize into DuckDB or stream GeoParquet in place |
 
 #### Data Methods
 
@@ -214,6 +232,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `format` | `VectorFormat` | detected | Explicit format override |
 | `beforeId` | `string` | control option | Map layer id this layer is inserted before |
 | `picker` | `boolean` | control option | Attribute popup on feature click |
+| `ingestMode` | `'table' \| 'stream'` | control option | Stream GeoParquet in place instead of copying it into DuckDB |
 
 #### Panel Methods
 

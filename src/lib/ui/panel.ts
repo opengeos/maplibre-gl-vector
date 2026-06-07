@@ -96,7 +96,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const loadUrl = () => {
     const url = urlInput.value.trim();
     if (!url) return;
-    void control.addData(url).then(
+    void control.addData(url, loadOptions()).then(
       () => {
         urlInput.value = '';
       },
@@ -111,6 +111,21 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   });
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
+
+  // --- Streaming toggle ----------------------------------------------------
+  // Applies to subsequent loads; GeoParquet only (others fall back to
+  // a materialized table).
+  const streamRow = el('label', 'vector-control-stream-row', {
+    title:
+      'Query GeoParquet in place with HTTP range requests instead of copying it into DuckDB. ' +
+      'Best for large remote files with a bbox covering column.',
+  });
+  const streamInput = el('input', 'vector-control-checkbox') as HTMLInputElement;
+  streamInput.type = 'checkbox';
+  const streamText = el('span');
+  streamText.textContent = 'Stream GeoParquet (no copy)';
+  streamRow.appendChild(streamInput);
+  streamRow.appendChild(streamText);
 
   // --- Status line ---------------------------------------------------------
   const status = el('div', 'vector-control-status');
@@ -184,9 +199,13 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     }
   }
 
+  function loadOptions(): VectorLayerOptions {
+    return streamInput.checked ? { ingestMode: 'stream' } : {};
+  }
+
   function loadFiles(files: FileList): void {
     for (const file of Array.from(files)) {
-      void control.addData(file).catch(() => {
+      void control.addData(file, loadOptions()).catch(() => {
         // Error already surfaced through the 'error' event.
       });
     }
@@ -210,6 +229,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(dropZone);
   container.appendChild(fileInput);
   container.appendChild(urlRow);
+  container.appendChild(streamRow);
   container.appendChild(status);
   container.appendChild(el('div', 'vector-control-divider'));
   container.appendChild(listTitle);

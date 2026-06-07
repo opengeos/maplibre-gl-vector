@@ -71,6 +71,7 @@ export function createLayerListItem(
   const parts: string[] = [layer.format];
   if (layer.featureCount !== undefined) parts.push(`${formatCount(layer.featureCount)} ft`);
   parts.push(layer.renderMode === 'tiles' ? 'tiles' : 'geojson');
+  if (layer.ingestMode === 'stream') parts.push('stream');
   meta.textContent = parts.join(' · ');
   nameWrap.appendChild(name);
   nameWrap.appendChild(meta);

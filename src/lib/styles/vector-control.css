@@ -334,6 +334,18 @@
   font-size: 12px;
 }
 
+/* Streaming toggle */
+.vector-control-stream-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--vc-text-soft);
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
 /* Status line */
 .vector-control-status {
   font-size: 11px;

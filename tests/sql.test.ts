@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   TILE_FEATURE_LIMIT,
+  bboxSummaryQuery,
+  createViewSql,
+  isBboxCoveringColumn,
+  mvtTileStreamQuery,
+  sampledGeometryTypesQuery,
   createTableFromLonLatSql,
   createTableFromWktSql,
   createTableSql,
@@ -145,6 +150,54 @@ describe('tileFeaturesQuery', () => {
     expect(sql).toContain('ST_MakeEnvelope(-10, -20, 30, 40)');
     expect(sql).toContain('ST_AsGeoJSON(geom)');
     expect(sql).toContain('"name"');
+  });
+});
+
+describe('streaming ingest SQL', () => {
+  it('creates a view with the geometry column normalized', () => {
+    expect(createViewSql('t1', "read_parquet('f.parquet')", 'geometry')).toBe(
+      'CREATE OR REPLACE VIEW "t1" AS SELECT * RENAME ("geometry" AS geom) FROM read_parquet(\'f.parquet\')',
+    );
+  });
+
+  it('recognizes bbox covering columns by common names', () => {
+    const structType = 'STRUCT(xmin FLOAT, ymin FLOAT, xmax FLOAT, ymax FLOAT)';
+    expect(isBboxCoveringColumn('bbox', structType)).toBe(true);
+    expect(isBboxCoveringColumn('geometry_bbox', structType)).toBe(true);
+    expect(isBboxCoveringColumn('geom_bbox', structType)).toBe(true);
+    expect(isBboxCoveringColumn('BBOX', structType)).toBe(true);
+    expect(isBboxCoveringColumn('bbox', 'VARCHAR')).toBe(false);
+    expect(isBboxCoveringColumn('extent', structType)).toBe(false);
+    expect(isBboxCoveringColumn('boundingbox', structType)).toBe(false);
+  });
+
+  it('summarizes from the bbox covering column without a geometry scan', () => {
+    const sql = bboxSummaryQuery('t1', 'geometry_bbox');
+    expect(sql).toContain('min("geometry_bbox".xmin)');
+    expect(sql).toContain('max("geometry_bbox".ymax)');
+    expect(sql).not.toContain('ST_Extent_Agg');
+  });
+
+  it('samples geometry types instead of scanning every row', () => {
+    const sql = sampledGeometryTypesQuery('t1', 50);
+    expect(sql).toContain('LIMIT 50');
+    expect(sql).toContain('ST_GeometryType');
+  });
+
+  it('builds the streaming tile query with bbox pushdown and per-tile transform', () => {
+    const sql = mvtTileStreamQuery('t1', 'layer', 3, 2, 1, [-10, -20, 30, 40], ['name'], 'bbox');
+    expect(sql).toContain("ST_Transform(geom, 'EPSG:4326', 'EPSG:3857', always_xy := true)");
+    expect(sql).toContain('"bbox".xmin <= 30 AND "bbox".xmax >= -10');
+    expect(sql).toContain('"bbox".ymin <= 40 AND "bbox".ymax >= -20');
+    expect(sql).toContain('ST_Intersects(geom, ST_MakeEnvelope(-10, -20, 30, 40))');
+    expect(sql).toContain('ST_TileEnvelope(3, 2, 1)');
+    expect(sql).toContain(`LIMIT ${TILE_FEATURE_LIMIT}`);
+  });
+
+  it('omits the pushdown filter without a bbox column', () => {
+    const sql = mvtTileStreamQuery('t1', 'layer', 3, 2, 1, [-10, -20, 30, 40], []);
+    expect(sql).not.toContain('.xmin <=');
+    expect(sql).toContain('ST_Intersects(geom,');
   });
 });
 

@@ -190,6 +190,41 @@ describe('LayerManager engine path', () => {
     await vi.waitFor(() => expect(engine.dropTable).toHaveBeenCalledWith('t_big'));
   });
 
+  it('passes the ingest mode to the engine and reflects the result', async () => {
+    const engine = createMockEngine({
+      ingest: vi.fn(async (_s, tableName) => ({
+        tableName,
+        featureCount: 100,
+        bbox: [0, 0, 10, 10] as [number, number, number, number],
+        geometryType: 'polygon' as const,
+        streamed: true,
+      })),
+    });
+    const { manager } = createManager({}, engine);
+
+    const info = await manager.addData('https://x.com/big.parquet', {
+      id: 'streamy',
+      ingestMode: 'stream',
+    });
+
+    expect(engine.ingest).toHaveBeenCalledWith(
+      'https://x.com/big.parquet',
+      't_streamy',
+      expect.objectContaining({ mode: 'stream' }),
+    );
+    expect(info.ingestMode).toBe('stream');
+  });
+
+  it('falls back to table mode when the engine does not stream', async () => {
+    const { manager } = createManager();
+    const info = await manager.addData(new File(['x'], 'data.gpkg'), {
+      id: 'nostream',
+      ingestMode: 'stream',
+    });
+    // Mock engine reports streamed: undefined -> resolved as table
+    expect(info.ingestMode).toBe('table');
+  });
+
   it('expands multi-layer containers into one vector layer per source layer', async () => {
     const engine = createMockEngine({
       listLayers: vi.fn(async () => ['roads', 'buildings']),
