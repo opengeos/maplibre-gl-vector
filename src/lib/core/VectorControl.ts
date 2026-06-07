@@ -113,6 +113,7 @@ export class VectorControl implements IControl {
         container: this._content,
         control: this,
         urlPlaceholder: this._options.urlPlaceholder,
+        defaultUrl: this._options.defaultUrl,
       });
     }
 

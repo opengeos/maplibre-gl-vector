@@ -40,6 +40,8 @@ export interface PanelUIOptions {
   control: PanelHost;
   /** Placeholder text for the URL input */
   urlPlaceholder?: string;
+  /** Initial value of the URL input (cleared after a successful load) */
+  defaultUrl?: string;
 }
 
 /**
@@ -93,6 +95,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const urlInput = el('input', 'vector-control-input') as HTMLInputElement;
   urlInput.type = 'url';
   urlInput.placeholder = options.urlPlaceholder ?? 'https://example.com/data.parquet';
+  if (options.defaultUrl) urlInput.value = options.defaultUrl;
   const urlButton = el('button', 'vector-control-button', { type: 'button' });
   urlButton.textContent = 'Load';
   const loadUrl = () => {
