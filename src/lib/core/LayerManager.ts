@@ -56,10 +56,6 @@ interface LayerRecord {
    * from the public layer id, which can repeat across controls.
    */
   providerKey?: string;
-  /** Existing map layer id this layer is inserted before */
-  beforeId?: string;
-  /** Whether clicking a feature opens an attribute popup */
-  picker: boolean;
   /** Per-map-layer picker handlers, for cleanup */
   pickerHandlers?: PickerHandler[];
 }
@@ -155,6 +151,8 @@ export class LayerManager {
         renderMode: 'geojson',
         geometryType: 'unknown',
         visible,
+        picker: options.picker ?? this._options.enablePicker ?? true,
+        beforeId: options.beforeId ?? this._options.beforeId,
         style,
         sourceId: sourceIdFor(id),
         layerIds: [],
@@ -162,8 +160,6 @@ export class LayerManager {
       source,
       sourceLayer: options.sourceLayer,
       fileName: typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
-      beforeId: options.beforeId ?? this._options.beforeId,
-      picker: options.picker ?? this._options.enablePicker ?? true,
     };
 
     this._emit('loading', { message: `Loading ${name}...` });
@@ -261,6 +257,40 @@ export class LayerManager {
   }
 
   /**
+   * Enables or disables the attribute popup for a layer.
+   *
+   * @param id - The layer id
+   * @param enabled - Whether clicking a feature opens a popup
+   */
+  setLayerPicker(id: string, enabled: boolean): void {
+    const record = this._records.get(id);
+    if (!record || record.info.picker === enabled) return;
+    record.info.picker = enabled;
+    this._detachPicker(record);
+    if (enabled) this._attachPicker(record);
+    this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
+   * Moves a layer's map layers before another map layer (or to the top
+   * when omitted).
+   *
+   * @param id - The layer id
+   * @param beforeId - Target map layer id, or undefined for the top
+   */
+  setLayerBeforeId(id: string, beforeId?: string): void {
+    const record = this._records.get(id);
+    if (!record) return;
+    const target = beforeId && this._map.getLayer(beforeId) ? beforeId : undefined;
+    // Moving in creation order keeps the group's internal stacking.
+    for (const layerId of record.info.layerIds) {
+      this._map.moveLayer(layerId, target);
+    }
+    record.info.beforeId = target;
+    this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
    * Switches a layer between GeoJSON and dynamic tile rendering.
    *
    * @param id - The layer id
@@ -349,7 +379,7 @@ export class LayerManager {
       geometryType: summary.geometryType,
       style: record.info.style,
       visible: record.info.visible,
-      beforeId: record.beforeId,
+      beforeId: record.info.beforeId,
     });
     this._attachPicker(record);
   }
@@ -436,7 +466,7 @@ export class LayerManager {
       style: record.info.style,
       visible: record.info.visible,
       sourceLayer: id,
-      beforeId: record.beforeId,
+      beforeId: record.info.beforeId,
     });
     this._attachPicker(record);
   }
@@ -465,7 +495,7 @@ export class LayerManager {
       geometryType: record.info.geometryType,
       style: record.info.style,
       visible: record.info.visible,
-      beforeId: record.beforeId,
+      beforeId: record.info.beforeId,
     });
     this._attachPicker(record);
   }
@@ -532,7 +562,7 @@ export class LayerManager {
    * opening a popup with the clicked feature's attributes.
    */
   private _attachPicker(record: LayerRecord): void {
-    if (!record.picker) return;
+    if (!record.info.picker) return;
     record.pickerHandlers = record.info.layerIds.map((layerId) => {
       const click = (e: MapLayerMouseEvent) => {
         const feature = e.features?.[0];

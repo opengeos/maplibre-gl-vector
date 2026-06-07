@@ -9,6 +9,18 @@ export interface StyleEditorCallbacks {
   onStyle: (patch: Partial<VectorLayerStyle>) => void;
   /** Called when the render mode select changes */
   onRenderMode: (mode: 'auto' | 'geojson' | 'tiles') => void;
+  /** Called when the attribute popup toggle changes */
+  onPicker: (enabled: boolean) => void;
+  /** Called when the before-layer select changes */
+  onBeforeId: (beforeId: string | undefined) => void;
+}
+
+/**
+ * Extra context for the style editor.
+ */
+export interface StyleEditorContext {
+  /** Map layer ids the layer can be inserted before */
+  beforeChoices: string[];
 }
 
 function colorRow(
@@ -65,6 +77,7 @@ function numberRow(
  */
 export function createStyleEditor(
   layer: VectorLayerInfo,
+  context: StyleEditorContext,
   callbacks: StyleEditorCallbacks,
 ): HTMLElement {
   const editor = el('div', 'vector-control-style-editor');
@@ -118,6 +131,41 @@ export function createStyleEditor(
   modeRow.appendChild(modeLabel);
   modeRow.appendChild(select);
   editor.appendChild(modeRow);
+
+  // Attribute popup toggle
+  const pickerRow = el('label', 'vector-control-style-row');
+  const pickerLabel = el('span', 'vector-control-style-label');
+  pickerLabel.textContent = 'Popup';
+  const pickerInput = el('input', 'vector-control-checkbox') as HTMLInputElement;
+  pickerInput.type = 'checkbox';
+  pickerInput.checked = layer.picker;
+  pickerInput.addEventListener('change', () => callbacks.onPicker(pickerInput.checked));
+  pickerRow.appendChild(pickerLabel);
+  pickerRow.appendChild(pickerInput);
+  editor.appendChild(pickerRow);
+
+  // Insert-before layer selector
+  const beforeRow = el('label', 'vector-control-style-row');
+  const beforeLabel = el('span', 'vector-control-style-label');
+  beforeLabel.textContent = 'Before';
+  const beforeSelect = el('select', 'vector-control-select') as HTMLSelectElement;
+  const topOption = el('option') as HTMLOptionElement;
+  topOption.value = '';
+  topOption.textContent = '(top)';
+  beforeSelect.appendChild(topOption);
+  for (const choice of context.beforeChoices) {
+    const option = el('option') as HTMLOptionElement;
+    option.value = choice;
+    option.textContent = choice;
+    if (choice === layer.beforeId) option.selected = true;
+    beforeSelect.appendChild(option);
+  }
+  beforeSelect.addEventListener('change', () =>
+    callbacks.onBeforeId(beforeSelect.value || undefined),
+  );
+  beforeRow.appendChild(beforeLabel);
+  beforeRow.appendChild(beforeSelect);
+  editor.appendChild(beforeRow);
 
   return editor;
 }

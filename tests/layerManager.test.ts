@@ -49,6 +49,8 @@ function createMockMap() {
     on: vi.fn(),
     off: vi.fn(),
     getCanvas: vi.fn(() => ({ style: {} })),
+    moveLayer: vi.fn(),
+    getStyle: vi.fn(() => ({ layers: [] })),
   };
 }
 
@@ -309,6 +311,35 @@ describe('LayerManager layer operations', () => {
       expect.objectContaining({ id: 'poly-fill' }),
       undefined,
     );
+  });
+
+  it('toggles the picker at runtime', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(manager.getLayer('poly')?.picker).toBe(true);
+
+    manager.setLayerPicker('poly', false);
+    expect(manager.getLayer('poly')?.picker).toBe(false);
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+
+    map.on.mockClear();
+    manager.setLayerPicker('poly', true);
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('moves layers with setLayerBeforeId', async () => {
+    const { manager, map } = createManager();
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+
+    manager.setLayerBeforeId('poly', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-outline', 'labels');
+    expect(manager.getLayer('poly')?.beforeId).toBe('labels');
+
+    manager.setLayerBeforeId('poly', undefined);
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', undefined);
+    expect(manager.getLayer('poly')?.beforeId).toBeUndefined();
   });
 
   it('disposes without events', async () => {

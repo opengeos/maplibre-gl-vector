@@ -558,3 +558,11 @@
     border-left-color: #1f2937;
   }
 }
+
+.vector-control-checkbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--vc-accent);
+  cursor: pointer;
+}

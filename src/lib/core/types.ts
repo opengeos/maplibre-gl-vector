@@ -230,6 +230,10 @@ export interface VectorLayerInfo {
   bbox?: [number, number, number, number];
   /** Whether the layer is currently visible */
   visible: boolean;
+  /** Whether clicking a feature opens an attribute popup */
+  picker: boolean;
+  /** Map layer id this layer's map layers sit before, when set */
+  beforeId?: string;
   /** Current style */
   style: VectorLayerStyle;
   /** Map source id */

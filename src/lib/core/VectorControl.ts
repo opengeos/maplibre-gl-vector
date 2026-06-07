@@ -255,6 +255,27 @@ export class VectorControl implements IControl {
   }
 
   /**
+   * Enables or disables the attribute popup for a layer.
+   *
+   * @param id - The layer id
+   * @param enabled - Whether clicking a feature opens a popup
+   */
+  setLayerPicker(id: string, enabled: boolean): void {
+    this._layerManager?.setLayerPicker(id, enabled);
+  }
+
+  /**
+   * Moves a layer's map layers before another map layer (or to the top
+   * when omitted).
+   *
+   * @param id - The layer id
+   * @param beforeId - Target map layer id, or undefined for the top
+   */
+  setLayerBeforeId(id: string, beforeId?: string): void {
+    this._layerManager?.setLayerBeforeId(id, beforeId);
+  }
+
+  /**
    * Switches a layer between GeoJSON and dynamic tile rendering.
    *
    * @param id - The layer id

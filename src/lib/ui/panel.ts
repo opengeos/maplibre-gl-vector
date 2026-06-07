@@ -1,3 +1,4 @@
+import type { Map as MapLibreMap } from 'maplibre-gl';
 import type {
   RenderMode,
   VectorControlEvent,
@@ -21,7 +22,10 @@ export interface PanelHost {
   setLayerVisibility(id: string, visible: boolean): void;
   zoomToLayer(id: string): void;
   setLayerStyle(id: string, style: Partial<VectorLayerStyle>): void;
+  setLayerPicker(id: string, enabled: boolean): void;
+  setLayerBeforeId(id: string, beforeId?: string): void;
   setRenderMode(id: string, mode: RenderMode): Promise<void>;
+  getMap(): MapLibreMap | undefined;
   on(event: VectorControlEvent, handler: VectorControlEventHandler): void;
   off(event: VectorControlEvent, handler: VectorControlEventHandler): void;
 }
@@ -137,9 +141,14 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
       list.appendChild(empty);
       return;
     }
+    // Map layers this control did not create, as insert-before targets
+    const ownLayerIds = new Set(layers.flatMap((layer) => layer.layerIds));
+    const beforeChoices = (control.getMap()?.getStyle()?.layers ?? [])
+      .map((mapLayer) => mapLayer.id)
+      .filter((mapLayerId) => !ownLayerIds.has(mapLayerId));
     for (const layer of layers) {
       list.appendChild(
-        createLayerListItem(layer, expandedEditors.has(layer.id), {
+        createLayerListItem(layer, expandedEditors.has(layer.id), { beforeChoices }, {
           onToggleVisibility: (id, visible) => control.setLayerVisibility(id, visible),
           onZoom: (id) => control.zoomToLayer(id),
           onRemove: (id) => {
@@ -160,6 +169,8 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
               // Error already surfaced through the 'error' event.
             });
           },
+          onPicker: (id, enabled) => control.setLayerPicker(id, enabled),
+          onBeforeId: (id, beforeId) => control.setLayerBeforeId(id, beforeId),
           onToggleEditor: (id) => {
             if (expandedEditors.has(id)) {
               expandedEditors.delete(id);

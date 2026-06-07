@@ -14,7 +14,7 @@ A MapLibre GL JS plugin for visualizing vector data in many formats - GeoJSON, G
 - **Large data → dynamic tiles** - large datasets are rendered as MVT tiles generated client-side by DuckDB per `z/x/y`, served through a `duckdb://` protocol handler ([reference approach](https://gist.github.com/Maxxen/37e4a9f8595ea5e6a20c0c8fbbefe955))
 - **Auto mode with override** - render mode is picked automatically from configurable feature-count/byte-size thresholds, with per-layer and UI overrides
 - **Lazy DuckDB loading** - DuckDB-WASM (~15-25 MB gzipped) is loaded from the jsDelivr CDN only when a non-GeoJSON format or tile rendering is first requested; GeoJSON-only usage never downloads it
-- **Collapsible panel UI** - 29x29 toggle button matching MapLibre controls, with drag-and-drop file upload, URL loading, a layer list (visibility / zoom / remove), a per-layer style editor, dark mode support, and viewport-aware scrolling on small screens
+- **Collapsible panel UI** - 29x29 toggle button matching MapLibre controls, with drag-and-drop file upload, URL loading, a layer list (visibility / zoom / remove), a per-layer style editor (colors, render mode, popup toggle, layer placement), dark mode support, and viewport-aware scrolling on small screens
 - **Attribute picker** - clicking a feature opens a popup with its attributes (`enablePicker`, on by default)
 - **Programmatic API** - `addData()`, `removeLayer()`, `setLayerStyle()`, `setRenderMode()`, events, and more
 - **React support** - `VectorControlReact` wrapper and `useVectorState` hook
@@ -185,6 +185,8 @@ Extensions without a dedicated reader are passed straight to `ST_Read`, so any v
 - `zoomToLayer(id)` - Fit the map to a layer's extent
 - `setLayerStyle(id, style)` - Update colors, opacity, line width, circle radius
 - `setRenderMode(id, mode)` - Switch between `'geojson'` and `'tiles'`
+- `setLayerPicker(id, enabled)` - Toggle the attribute popup (also a "Popup" checkbox in the panel)
+- `setLayerBeforeId(id, beforeId?)` - Move the layer before another map layer, or to the top (also a "Before" select in the panel)
 
 #### Layer Options (`addData`)
 
