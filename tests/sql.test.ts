@@ -167,6 +167,7 @@ describe('streaming ingest SQL', () => {
     expect(isBboxCoveringColumn('geom_bbox', structType)).toBe(true);
     expect(isBboxCoveringColumn('BBOX', structType)).toBe(true);
     expect(isBboxCoveringColumn('bbox', 'VARCHAR')).toBe(false);
+    expect(isBboxCoveringColumn('bbox', 'STRUCT(xmin FLOAT, ymax FLOAT)')).toBe(false);
     expect(isBboxCoveringColumn('extent', structType)).toBe(false);
     expect(isBboxCoveringColumn('boundingbox', structType)).toBe(false);
   });

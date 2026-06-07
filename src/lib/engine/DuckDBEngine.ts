@@ -171,7 +171,7 @@ export class DuckDBEngine implements IEngine {
 
       const path = await this._registerSource(source, tableName, options);
       if (streamed) {
-        await this._createStreamView(tableName, path, options, meta);
+        await this._createStreamView(tableName, path, options);
       } else {
         try {
           await this._createTable(tableName, path, options);
@@ -415,7 +415,6 @@ export class DuckDBEngine implements IEngine {
     tableName: string,
     path: string,
     options: IngestOptions,
-    _meta: TableMeta,
   ): Promise<void> {
     const reader = readerFor(options.format, path, options.sourceLayer);
     const columns = await this._describeReader(reader);

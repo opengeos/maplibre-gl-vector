@@ -643,6 +643,10 @@ export class VectorControl implements IControl {
       (position.startsWith('top') ? buttonTop : buttonBottom) + buttonRect.height + panelGap;
     const available = mapRect.height - occupied - edgeMargin;
     this._panel.style.maxHeight = `${Math.max(120, available)}px`;
-    this._panel.style.maxWidth = `${Math.max(200, mapRect.width - 2 * edgeMargin)}px`;
+    const availableWidth = Math.max(120, mapRect.width - 2 * edgeMargin);
+    this._panel.style.maxWidth = `${availableWidth}px`;
+    // Clamp the stylesheet's min-width too, or it overrides maxWidth
+    // on very narrow maps.
+    this._panel.style.minWidth = `${Math.min(240, availableWidth)}px`;
   }
 }

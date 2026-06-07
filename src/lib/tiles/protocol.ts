@@ -121,11 +121,17 @@ export async function registerTileProvider(
 export function unregisterTileProvider(providerKey: string): void {
   providers.delete(providerKey);
   if (providers.size === 0 && protocolRegistered) {
-    protocolRegistered = false;
-    void getMaplibre().then((api) => {
-      // Re-check: a provider may have been registered meanwhile.
-      if (providers.size === 0) api.removeProtocol(TILE_PROTOCOL);
-    });
+    void getMaplibre()
+      .then((api) => {
+        // Re-check: a provider may have been registered meanwhile.
+        if (providers.size === 0 && protocolRegistered) {
+          api.removeProtocol(TILE_PROTOCOL);
+          protocolRegistered = false;
+        }
+      })
+      .catch(() => {
+        // Leave state unchanged; a later unregister can retry teardown.
+      });
   }
 }
 

@@ -174,7 +174,13 @@ export function isBboxCoveringColumn(name: string, type: string): boolean {
   const lower = name.toLowerCase();
   if (lower !== 'bbox' && !lower.endsWith('_bbox')) return false;
   const upper = type.toUpperCase();
-  return upper.startsWith('STRUCT') && upper.includes('XMIN') && upper.includes('YMAX');
+  return (
+    upper.startsWith('STRUCT') &&
+    /\bXMIN\b/.test(upper) &&
+    /\bYMIN\b/.test(upper) &&
+    /\bXMAX\b/.test(upper) &&
+    /\bYMAX\b/.test(upper)
+  );
 }
 
 /**

@@ -92,6 +92,7 @@ export class LayerManager {
   private _getEngine: EngineProvider;
   private _records = new Map<string, LayerRecord>();
   private _popup?: { remove(): void };
+  private _popupOwnerId?: string;
 
   /**
    * Creates a layer manager.
@@ -640,7 +641,9 @@ export class LayerManager {
     record.pickerHandlers = record.info.layerIds.map((layerId) => {
       const click = (e: MapLayerMouseEvent) => {
         const feature = e.features?.[0];
-        if (feature) void this._showPopup(e.lngLat, record.info.name, feature.properties ?? {});
+        if (feature) {
+          void this._showPopup(record.info, e.lngLat, feature.properties ?? {});
+        }
       };
       const enter = () => {
         this._map.getCanvas().style.cursor = 'pointer';
@@ -665,6 +668,13 @@ export class LayerManager {
       this._map.off('mouseleave', handler.layerId, handler.leave);
     }
     record.pickerHandlers = undefined;
+    // Close a popup owned by this layer so stale attributes do not
+    // linger after removal or a render-mode switch.
+    if (this._popupOwnerId === record.info.id) {
+      this._popup?.remove();
+      this._popup = undefined;
+      this._popupOwnerId = undefined;
+    }
   }
 
   /**
@@ -672,8 +682,8 @@ export class LayerManager {
    * Content is built with textContent, so attribute values are inert.
    */
   private async _showPopup(
+    info: Pick<VectorLayerInfo, 'id' | 'name'>,
     lngLat: { lng: number; lat: number },
-    layerName: string,
     properties: Record<string, unknown>,
   ): Promise<void> {
     const container = document.createElement('div');
@@ -681,7 +691,7 @@ export class LayerManager {
 
     const title = document.createElement('div');
     title.className = 'vector-control-popup-title';
-    title.textContent = layerName;
+    title.textContent = info.name;
     container.appendChild(title);
 
     const entries = Object.entries(properties);
@@ -711,6 +721,7 @@ export class LayerManager {
     popup.setDOMContent(container);
     popup.addTo(this._map);
     this._popup = popup;
+    this._popupOwnerId = info.id;
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {

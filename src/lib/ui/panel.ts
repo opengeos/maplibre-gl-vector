@@ -200,7 +200,9 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   }
 
   function loadOptions(): VectorLayerOptions {
-    return streamInput.checked ? { ingestMode: 'stream' } : {};
+    // Explicit 'table' when unchecked, so the toggle wins over a
+    // control-level defaultIngestMode of 'stream'.
+    return { ingestMode: streamInput.checked ? 'stream' : 'table' };
   }
 
   function loadFiles(files: FileList): void {
