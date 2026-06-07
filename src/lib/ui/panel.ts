@@ -42,6 +42,8 @@ export interface PanelUIOptions {
   urlPlaceholder?: string;
   /** Initial value of the URL input (cleared after a successful load) */
   defaultUrl?: string;
+  /** Load defaultUrl immediately, as if the user had pressed Load */
+  autoLoad?: boolean;
 }
 
 /**
@@ -243,6 +245,11 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(list);
 
   renderList();
+
+  // Kick off the initial load through the same path as the Load button,
+  // so progress/errors surface in the status line and the input clears
+  // on success.
+  if (options.autoLoad && urlInput.value) loadUrl();
 
   return () => {
     control.off('loading', onLoading);

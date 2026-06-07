@@ -157,6 +157,13 @@ export interface VectorControlOptions {
    * load)
    */
   defaultUrl?: string;
+
+  /**
+   * Automatically load `defaultUrl` when the control is added to the
+   * map, as if the user had pressed Load (no-op without `defaultUrl`)
+   * @default false
+   */
+  autoLoad?: boolean;
 }
 
 /**

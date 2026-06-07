@@ -43,6 +43,51 @@ describe('renderPanelUI URL input', () => {
     const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
     expect(input.placeholder).toBe('https://example.com/sample.geojson');
     expect(input.value).toBe('https://example.com/countries.parquet');
+    expect(dispose).toBeTypeOf('function');
+    dispose();
+  });
+
+  it('does not load defaultUrl without autoLoad', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      defaultUrl: 'https://example.com/countries.parquet',
+    });
+
+    expect(host.addData).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('loads defaultUrl on mount with autoLoad and clears the input', async () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      defaultUrl: 'https://example.com/countries.parquet',
+      autoLoad: true,
+    });
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/countries.parquet',
+      { ingestMode: 'table' },
+    );
+    await vi.waitFor(() => {
+      const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
+      expect(input.value).toBe('');
+    });
+    dispose();
+  });
+
+  it('is a no-op when autoLoad is set without defaultUrl', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    const dispose = renderPanelUI({ container, control: host, autoLoad: true });
+
+    expect(host.addData).not.toHaveBeenCalled();
     dispose();
   });
 });
