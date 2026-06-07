@@ -247,16 +247,27 @@ export interface VectorLayerOptions {
 /**
  * Where a layer's data came from. URL-backed layers can be recreated
  * from this descriptor (e.g. when a host application restores a saved
- * project); file- and object-backed layers cannot.
+ * project); file- and object-backed layers cannot. A discriminated
+ * union, so a URL-backed descriptor always carries the URL needed to
+ * recreate the layer.
  */
-export interface VectorSourceDescriptor {
-  /** Source category */
-  kind: 'url' | 'file' | 'geojson';
-  /** The source URL, for `kind: 'url'` */
-  url?: string;
-  /** The local file name, for `kind: 'file'` (when known) */
-  fileName?: string;
-}
+export type VectorSourceDescriptor =
+  | {
+      /** The data was loaded from a URL */
+      kind: 'url';
+      /** The source URL */
+      url: string;
+    }
+  | {
+      /** The data came from a local File/Blob */
+      kind: 'file';
+      /** The local file name (when known) */
+      fileName?: string;
+    }
+  | {
+      /** The data was passed as a GeoJSON object */
+      kind: 'geojson';
+    };
 
 /**
  * Metadata describing a loaded vector layer.
