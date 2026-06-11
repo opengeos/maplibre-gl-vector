@@ -45,6 +45,34 @@ describe('buildPaint', () => {
   });
 });
 
+describe('buildPaint data-driven color', () => {
+  const matchExpr = [
+    'match',
+    ['to-string', ['get', 'continent']],
+    'Asia',
+    '#ff0000',
+    '#cccccc',
+  ];
+
+  it('uses fillColorExpression over the flat fill color', () => {
+    expect(
+      buildPaint('fill', { ...DEFAULT_STYLE, fillColorExpression: matchExpr }),
+    ).toMatchObject({ 'fill-color': matchExpr });
+  });
+
+  it('uses lineColorExpression for outline and line roles', () => {
+    const style = { ...DEFAULT_STYLE, lineColorExpression: matchExpr };
+    expect(buildPaint('outline', style)).toMatchObject({ 'line-color': matchExpr });
+    expect(buildPaint('line', style)).toMatchObject({ 'line-color': matchExpr });
+  });
+
+  it('uses circleColorExpression over the flat circle color', () => {
+    expect(
+      buildPaint('circle', { ...DEFAULT_STYLE, circleColorExpression: matchExpr }),
+    ).toMatchObject({ 'circle-color': matchExpr });
+  });
+});
+
 describe('clampOpacity', () => {
   it('clamps to [0, 1] and maps non-finite values to 1', () => {
     expect(clampOpacity(-0.5)).toBe(0);
@@ -82,6 +110,38 @@ describe('stylePatchToPaintOps', () => {
 
   it('ignores undefined values', () => {
     expect(stylePatchToPaintOps(info, {})).toEqual([]);
+  });
+
+  it('prefers a color expression over the flat color', () => {
+    const fillExpr = ['match', ['get', 'k'], 'a', '#f00', '#ccc'];
+    const lineExpr = ['match', ['get', 'k'], 'a', '#0f0', '#ccc'];
+    const circleExpr = ['match', ['get', 'k'], 'a', '#00f', '#ccc'];
+    expect(
+      stylePatchToPaintOps(info, {
+        fillColor: '#111111',
+        fillColorExpression: fillExpr,
+        lineColor: '#222222',
+        lineColorExpression: lineExpr,
+        circleColor: '#333333',
+        circleColorExpression: circleExpr,
+      }),
+    ).toEqual([
+      { layerId: 'layer1-fill', property: 'fill-color', value: fillExpr },
+      { layerId: 'layer1-outline', property: 'line-color', value: lineExpr },
+      { layerId: 'layer1-line', property: 'line-color', value: lineExpr },
+      { layerId: 'layer1-circle', property: 'circle-color', value: circleExpr },
+    ]);
+  });
+
+  it('falls back to the flat color when the expression is explicitly undefined', () => {
+    // Reverting from a data-driven mode: the host clears the expression and
+    // sends the flat color, which must reach the map.
+    expect(
+      stylePatchToPaintOps(info, {
+        fillColor: '#abcdef',
+        fillColorExpression: undefined,
+      }),
+    ).toEqual([{ layerId: 'layer1-fill', property: 'fill-color', value: '#abcdef' }]);
   });
 
   it('multiplies opacity patches by the master opacity', () => {
