@@ -164,6 +164,18 @@ export interface VectorControlOptions {
    * @default false
    */
   autoLoad?: boolean;
+
+  /**
+   * Base URL to load DuckDB-WASM from instead of the default jsDelivr CDN.
+   *
+   * Use this to self-host (or mirror) the assets and avoid the CDN request
+   * (and the `script-src https://cdn.jsdelivr.net` CSP allowance it needs).
+   * The base must mirror jsDelivr's layout for the pinned duckdb-wasm
+   * version: an `/+esm` ES-module bundle plus the `/dist/*` wasm and worker
+   * files. For example, `'/vendor/duckdb-wasm-1.31.0'` served from the host's
+   * own origin. Defaults to jsDelivr when unset.
+   */
+  duckdbWasmBaseUrl?: string;
 }
 
 /**
