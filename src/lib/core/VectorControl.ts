@@ -431,6 +431,7 @@ export class VectorControl implements IControl {
     if (!this._enginePromise) {
       this._enginePromise = createEngine({
         onProgress: (message) => this._emit('loading', { message }),
+        baseUrl: this._options.duckdbWasmBaseUrl,
       });
       // Allow a retry on the next request when engine creation fails
       // (e.g. the CDN was unreachable).

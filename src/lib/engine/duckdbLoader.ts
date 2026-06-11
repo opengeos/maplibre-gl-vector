@@ -11,9 +11,30 @@ import { mvtProbeQuery } from './sql';
 export const DUCKDB_WASM_VERSION = '1.31.0';
 
 /**
- * jsDelivr base URL for the pinned duckdb-wasm package.
+ * jsDelivr base URL for the pinned duckdb-wasm package. Used as the default
+ * when no custom base is configured.
  */
 export const DUCKDB_CDN_BASE = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_WASM_VERSION}`;
+
+/**
+ * Rewrites the jsDelivr URLs returned by `getJsDelivrBundles()` to a custom
+ * base so the `.wasm` and worker assets load from a self-hosted (or mirrored)
+ * location instead of the CDN.
+ *
+ * The base must mirror jsDelivr's layout for duckdb-wasm
+ * {@link DUCKDB_WASM_VERSION}: an `/+esm` ES-module bundle plus the `/dist/*`
+ * wasm and worker files. A trailing slash on the base is ignored.
+ *
+ * @param bundles - Bundle map from duckdb-wasm's `getJsDelivrBundles()`.
+ * @param base - Target base URL (e.g. `/vendor/duckdb-wasm-1.31.0`).
+ * @returns A new bundle map with rebased URLs (the default base is a no-op).
+ */
+export function rebaseDuckDBBundles<T>(bundles: T, base: string): T {
+  const normalized = base.replace(/\/+$/, '');
+  if (normalized === DUCKDB_CDN_BASE) return bundles;
+  const rebased = JSON.stringify(bundles).split(DUCKDB_CDN_BASE).join(normalized);
+  return JSON.parse(rebased) as T;
+}
 
 /**
  * Minimal structural types for the duckdb-wasm API surface we use.
@@ -78,14 +99,22 @@ export function importFromCdn(url: string): Promise<Record<string, unknown>> {
  * the spatial extension, and probes MVT support.
  *
  * @param onProgress - Optional progress message callback
+ * @param baseUrl - Optional base URL to load duckdb-wasm from instead of
+ *   jsDelivr. Must mirror jsDelivr's layout (`/+esm` plus `/dist/*`) for the
+ *   pinned {@link DUCKDB_WASM_VERSION}; lets a host self-host the assets and
+ *   avoid the CDN (and the CSP allowance it requires).
  * @returns The loaded database, connection, and capabilities
  */
-export async function loadDuckDB(onProgress?: (message: string) => void): Promise<LoadedDuckDB> {
+export async function loadDuckDB(
+  onProgress?: (message: string) => void,
+  baseUrl?: string,
+): Promise<LoadedDuckDB> {
   onProgress?.('Loading DuckDB-WASM...');
+  const base = (baseUrl ?? DUCKDB_CDN_BASE).replace(/\/+$/, '');
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const duckdb: any = await dynamicImport(`${DUCKDB_CDN_BASE}/+esm`);
+  const duckdb: any = await dynamicImport(`${base}/+esm`);
 
-  const bundles = duckdb.getJsDelivrBundles();
+  const bundles = rebaseDuckDBBundles(duckdb.getJsDelivrBundles(), base);
   const bundle = await duckdb.selectBundle(bundles);
 
   const workerUrl = URL.createObjectURL(

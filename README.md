@@ -209,6 +209,21 @@ await control.addData("city.gpkg", { sourceLayer: "roads" });
 
 Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
 
+### Self-hosting DuckDB-WASM
+
+By default the plugin loads DuckDB-WASM from `cdn.jsdelivr.net` on first use. If you serve the app with a Content-Security-Policy, that requires allowing `https://cdn.jsdelivr.net` in `script-src` (the engine is loaded via a dynamic `import()`); if the CDN is blocked or unreachable, loading fails with `Failed to fetch dynamically imported module`.
+
+To avoid the CDN entirely, mirror the pinned duckdb-wasm assets onto your own origin and point the control at them with `duckdbWasmBaseUrl`:
+
+```typescript
+new VectorControl({
+  // Serves /+esm and /dist/* just like jsDelivr, from your origin
+  duckdbWasmBaseUrl: "/vendor/duckdb-wasm-1.31.0",
+});
+```
+
+The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0`): an `/+esm` ES-module bundle plus the `/dist/*.wasm` and worker files. The simplest way is to copy the files from `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.31.0/` (including the `+esm` bundle) into a directory your server hosts. The version is pinned deliberately because its DuckDB core ships `ST_AsMVT`; do not substitute a different version.
+
 ## API
 
 ### VectorControl
@@ -232,6 +247,7 @@ Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. C
 | `urlPlaceholder` | `string` | `'https://example.com/data.parquet'` | Placeholder text for the panel's URL input |
 | `defaultUrl` | `string` | - | Initial value of the panel's URL input (a ready-to-load sample dataset) |
 | `autoLoad` | `boolean` | `false` | Load `defaultUrl` automatically when the control is added to the map |
+| `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
 
 #### Data Methods
 

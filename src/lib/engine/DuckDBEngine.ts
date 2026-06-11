@@ -36,6 +36,11 @@ import {
 export interface CreateEngineOptions {
   /** Progress message callback (e.g. for the panel status line) */
   onProgress?: (message: string) => void;
+  /**
+   * Base URL to load duckdb-wasm from instead of jsDelivr. See
+   * {@link loadDuckDB}.
+   */
+  baseUrl?: string;
 }
 
 /**
@@ -533,7 +538,7 @@ export class DuckDBEngine implements IEngine {
  * @returns The ready engine
  */
 export async function createEngine(options?: CreateEngineOptions): Promise<IEngine> {
-  const loaded = await loadDuckDB(options?.onProgress);
+  const loaded = await loadDuckDB(options?.onProgress, options?.baseUrl);
   options?.onProgress?.(`DuckDB ${loaded.version} ready`);
   return new DuckDBEngine(loaded);
 }
