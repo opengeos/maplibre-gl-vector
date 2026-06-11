@@ -397,6 +397,65 @@ export class LayerManager {
   }
 
   /**
+   * Re-fetches a URL-backed layer's data and re-renders it in place,
+   * preserving the layer id, source id, style, render mode, and stacking
+   * position. File and in-memory GeoJSON sources are static between loads,
+   * so for those the current info is returned unchanged.
+   *
+   * @param id - The layer id
+   * @returns The refreshed layer info, or undefined when no such layer exists
+   */
+  async reloadLayer(id: string): Promise<VectorLayerInfo | undefined> {
+    const record = this._records.get(id);
+    if (!record) return undefined;
+    // Only URL sources can change between loads; files/objects are static.
+    if (typeof record.source !== 'string') return { ...record.info };
+
+    this._emit('loading', { message: `Refreshing ${record.info.name}...` });
+
+    try {
+      // Tear down the current presentation (mirrors setRenderMode).
+      this._detachPicker(record);
+      removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+      if (record.providerKey) {
+        unregisterTileProvider(record.providerKey);
+        record.providerKey = undefined;
+      }
+      record.info.layerIds = [];
+
+      // Drop the stale engine table so the next ingest re-reads the source.
+      if (record.tableName) {
+        const tableName = record.tableName;
+        record.tableName = undefined;
+        const engine = await this._getEngine();
+        await engine.dropTable(tableName).catch(() => {
+          // Table already gone; nothing to clean up.
+        });
+      }
+
+      // Re-run the load pipeline, preserving the resolved render mode so a
+      // refresh does not flip a tiles layer to geojson (or vice versa).
+      const reloadOptions: VectorLayerOptions = {
+        renderMode: record.info.renderMode,
+        ingestMode: record.info.ingestMode,
+        sourceLayer: record.sourceLayer,
+      };
+      if (record.info.format === 'geojson' && record.info.renderMode !== 'tiles') {
+        await this._addGeoJSON(record, reloadOptions);
+      } else {
+        await this._addViaEngine(record, reloadOptions);
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      this._emit('error', { error });
+      throw error;
+    }
+
+    this._emit('layerupdated', { layer: { ...record.info } });
+    return { ...record.info };
+  }
+
+  /**
    * Removes all layers and map resources without emitting events.
    * Called when the control is removed from the map.
    */

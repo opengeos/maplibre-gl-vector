@@ -259,6 +259,7 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 - `setLayerStyle(id, style)` - Update colors, opacity, line width, circle radius
 - `setLayerOpacity(id, opacity)` - Master opacity (0-1) multiplied into every style opacity
 - `setRenderMode(id, mode)` - Switch between `'geojson'` and `'tiles'`
+- `reloadLayer(id)` - Re-fetch a URL-backed layer and re-render it in place (keeps the same id, style, and position; no-op for File/GeoJSON-object sources)
 - `setLayerPicker(id, enabled)` - Toggle the attribute popup (also a "Popup" checkbox in the panel)
 - `setLayerBeforeId(id, beforeId?)` - Move the layer before another map layer, or to the top (also a "Before" select in the panel)
 
