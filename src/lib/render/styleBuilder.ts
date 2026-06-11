@@ -1,5 +1,11 @@
-import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { Map as MapLibreMap, PropertyValueSpecification } from 'maplibre-gl';
 import type { VectorLayerInfo, VectorLayerStyle } from '../core/types';
+
+/**
+ * A paint value: a flat scalar, or a MapLibre data-driven color expression
+ * (used for attribute-driven fill/line/circle colors).
+ */
+export type PaintValue = string | number | PropertyValueSpecification<string>;
 
 /**
  * Default style applied to new layers.
@@ -20,7 +26,7 @@ export const DEFAULT_STYLE: VectorLayerStyle = {
 export interface PaintOp {
   layerId: string;
   property: string;
-  value: string | number;
+  value: PaintValue;
 }
 
 /**
@@ -63,29 +69,34 @@ export function buildPaint(
   suffix: LayerSuffix,
   style: VectorLayerStyle,
   opacity = 1,
-): Record<string, string | number> {
+): Record<string, PaintValue> {
   const master = clampOpacity(opacity);
+  // A data-driven color expression, when present, overrides the flat color so
+  // attribute-driven (categorized/graduated) styling renders.
+  const fillColor = style.fillColorExpression ?? style.fillColor;
+  const lineColor = style.lineColorExpression ?? style.lineColor;
+  const circleColor = style.circleColorExpression ?? style.circleColor;
   switch (suffix) {
     case 'fill':
       return {
-        'fill-color': style.fillColor,
+        'fill-color': fillColor,
         'fill-opacity': style.fillOpacity * master,
       };
     case 'outline':
       return {
-        'line-color': style.lineColor,
+        'line-color': lineColor,
         'line-width': style.lineWidth,
         'line-opacity': master,
       };
     case 'line':
       return {
-        'line-color': style.lineColor,
+        'line-color': lineColor,
         'line-width': style.lineWidth,
         'line-opacity': master,
       };
     case 'circle':
       return {
-        'circle-color': style.circleColor,
+        'circle-color': circleColor,
         'circle-radius': style.circleRadius,
         'circle-opacity': style.circleOpacity * master,
         'circle-stroke-color': '#ffffff',
@@ -115,19 +126,24 @@ export function stylePatchToPaintOps(
   const master = clampOpacity(opacity);
   const ops: PaintOp[] = [];
   const has = (suffix: LayerSuffix) => info.layerIds.includes(mapLayerId(info.id, suffix));
-  const push = (suffix: LayerSuffix, property: string, value: string | number | undefined) => {
+  const push = (suffix: LayerSuffix, property: string, value: PaintValue | undefined) => {
     if (value !== undefined && has(suffix)) {
       ops.push({ layerId: mapLayerId(info.id, suffix), property, value });
     }
   };
 
-  push('fill', 'fill-color', patch.fillColor);
+  // A data-driven color expression in the patch overrides the flat color.
+  const fillColor = patch.fillColorExpression ?? patch.fillColor;
+  const lineColor = patch.lineColorExpression ?? patch.lineColor;
+  const circleColor = patch.circleColorExpression ?? patch.circleColor;
+
+  push('fill', 'fill-color', fillColor);
   push('fill', 'fill-opacity', patch.fillOpacity === undefined ? undefined : patch.fillOpacity * master);
-  push('outline', 'line-color', patch.lineColor);
+  push('outline', 'line-color', lineColor);
   push('outline', 'line-width', patch.lineWidth);
-  push('line', 'line-color', patch.lineColor);
+  push('line', 'line-color', lineColor);
   push('line', 'line-width', patch.lineWidth);
-  push('circle', 'circle-color', patch.circleColor);
+  push('circle', 'circle-color', circleColor);
   push('circle', 'circle-radius', patch.circleRadius);
   push('circle', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
 

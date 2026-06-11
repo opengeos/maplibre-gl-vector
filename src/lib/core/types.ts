@@ -1,4 +1,4 @@
-import type { Map } from 'maplibre-gl';
+import type { Map, PropertyValueSpecification } from 'maplibre-gl';
 import type { GeoJSON } from 'geojson';
 
 /**
@@ -196,6 +196,18 @@ export interface VectorLayerStyle {
   circleRadius: number;
   /** Point circle opacity (0-1) */
   circleOpacity: number;
+  /**
+   * Optional data-driven override for the polygon fill color, e.g. a
+   * categorized `['match', ...]` or graduated `['interpolate', ...]`
+   * expression. When set it takes precedence over `fillColor` (which remains
+   * the flat fallback). Lets a host application apply attribute-driven
+   * styling that a single color cannot express.
+   */
+  fillColorExpression?: PropertyValueSpecification<string>;
+  /** Optional data-driven override for the line and polygon outline color. */
+  lineColorExpression?: PropertyValueSpecification<string>;
+  /** Optional data-driven override for the point circle color. */
+  circleColorExpression?: PropertyValueSpecification<string>;
 }
 
 /**
