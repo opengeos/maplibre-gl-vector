@@ -532,3 +532,79 @@ describe('LayerManager layer operations', () => {
     expect(manager.getLayer('poly')?.style.fillOpacity).toBe(0.8);
   });
 });
+
+describe('LayerManager reloadLayer', () => {
+  function fcWithFeatures(count: number): FeatureCollection {
+    return {
+      type: 'FeatureCollection',
+      features: Array.from({ length: count }, () => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [10, 0],
+              [10, 10],
+              [0, 10],
+              [0, 0],
+            ],
+          ],
+        },
+        properties: {},
+      })),
+    };
+  }
+
+  it('re-fetches a URL layer and re-renders it in place', async () => {
+    const { manager, map, emit } = createManager();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(fcWithFeatures(1)),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(fcWithFeatures(3)),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const added = await manager.addData('https://x.com/data.geojson', { id: 'live' });
+    expect(added.featureCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const reloaded = await manager.reloadLayer('live');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reloaded?.id).toBe('live');
+    expect(reloaded?.sourceId).toBe('live-source');
+    expect(reloaded?.featureCount).toBe(3);
+    expect(map.removeSource).toHaveBeenCalledWith('live-source');
+    expect(map.addSource).toHaveBeenLastCalledWith(
+      'live-source',
+      expect.objectContaining({ type: 'geojson' }),
+    );
+    expect(emit).toHaveBeenCalledWith(
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ id: 'live' }) }),
+    );
+  });
+
+  it('returns undefined for an unknown layer id', async () => {
+    const { manager } = createManager();
+    await expect(manager.reloadLayer('nope')).resolves.toBeUndefined();
+  });
+
+  it('does not re-fetch a non-URL (in-memory GeoJSON) layer', async () => {
+    const { manager } = createManager();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await manager.addData(POLYGON_FC, { id: 'static' });
+    const result = await manager.reloadLayer('static');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result?.id).toBe('static');
+  });
+});
