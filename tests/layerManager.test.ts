@@ -607,4 +607,20 @@ describe('LayerManager reloadLayer', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(result?.id).toBe('static');
   });
+
+  it('re-ingests, re-prepares tiles, and drops the stale table when reloading an engine-backed URL layer', async () => {
+    const engine = createMockEngine();
+    const { manager } = createManager({}, engine);
+
+    await manager.addData('https://x.com/data.parquet', { id: 'eng', renderMode: 'tiles' });
+    expect(engine.ingest).toHaveBeenCalledTimes(1);
+    expect(engine.prepareTiles).toHaveBeenCalledTimes(1);
+
+    const reloaded = await manager.reloadLayer('eng');
+
+    expect(reloaded?.renderMode).toBe('tiles');
+    expect(engine.ingest).toHaveBeenCalledTimes(2);
+    expect(engine.prepareTiles).toHaveBeenCalledTimes(2);
+    expect(engine.dropTable).toHaveBeenCalledWith('t_eng');
+  });
 });
