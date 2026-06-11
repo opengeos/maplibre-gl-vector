@@ -29,6 +29,7 @@ import {
   summaryQuery,
   tileFeaturesQuery,
 } from './sql';
+import { registerZippedShapefile } from '../formats/shapefile';
 
 /**
  * Options for creating the DuckDB engine.
@@ -350,6 +351,23 @@ export class DuckDBEngine implements IEngine {
     const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'bin';
     const name = `${registrationName}.${extension.toLowerCase()}`;
     const buffer = new Uint8Array(await source.arrayBuffer());
+
+    // GDAL's /vsizip handler cannot read a DuckDB-WASM registerFileBuffer
+    // archive (the virtual filesystem it opens through is GDAL's own, not
+    // DuckDB's registered-file VFS), so a zipped shapefile is unzipped and its
+    // components are registered individually; readers then open the .shp
+    // directly rather than via /vsizip.
+    if (options.format === 'shapefile' && /\.zip$/i.test(name)) {
+      const shpPath = await registerZippedShapefile(
+        buffer,
+        registrationName,
+        (componentName, bytes) =>
+          this._loaded.db.registerFileBuffer(componentName, bytes),
+      );
+      this._sharedFiles.set(source, shpPath);
+      return shpPath;
+    }
+
     await this._loaded.db.registerFileBuffer(name, buffer);
     this._sharedFiles.set(source, name);
     return name;
