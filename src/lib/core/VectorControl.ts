@@ -299,6 +299,19 @@ export class VectorControl implements IControl {
     return this._manager().setRenderMode(id, mode);
   }
 
+  /**
+   * Re-fetches a URL-backed layer's data and re-renders it in place,
+   * keeping the same layer id, source, style, render mode, and position.
+   * In-memory GeoJSON and File sources are static, so reloading them is a
+   * no-op that returns the current layer info.
+   *
+   * @param id - The layer id
+   * @returns The refreshed layer info, or undefined when no such layer exists
+   */
+  async reloadLayer(id: string): Promise<VectorLayerInfo | undefined> {
+    return this._layerManager?.reloadLayer(id);
+  }
+
   // ---------------------------------------------------------------------
   // State and events
   // ---------------------------------------------------------------------
