@@ -6,7 +6,10 @@ import type {
 import type { FeatureCollection } from 'geojson';
 import type { GeometryCategory, VectorLayerStyle } from '../core/types';
 import type { Bbox } from '../utils/geometry';
-import { buildPaint, mapLayerId, type LayerSuffix } from './styleBuilder';
+import { buildPaint, mapLayerId, pointModeOf } from './styleBuilder';
+
+/** Map layer roles created by the geometry-type loop (excludes heatmap/cluster). */
+type GeometrySuffix = 'fill' | 'outline' | 'line' | 'circle';
 
 /**
  * Builds the map source id for a vector layer.
@@ -27,7 +30,7 @@ export function sourceIdFor(layerId: string): string {
  * @param category - The geometry category
  * @returns The layer suffixes to create
  */
-export function suffixesForGeometry(category: GeometryCategory): LayerSuffix[] {
+export function suffixesForGeometry(category: GeometryCategory): GeometrySuffix[] {
   switch (category) {
     case 'polygon':
       return ['fill', 'outline'];
@@ -40,19 +43,23 @@ export function suffixesForGeometry(category: GeometryCategory): LayerSuffix[] {
   }
 }
 
-const SUFFIX_TYPES: Record<LayerSuffix, 'fill' | 'line' | 'circle'> = {
+const SUFFIX_TYPES: Record<GeometrySuffix, 'fill' | 'line' | 'circle'> = {
   fill: 'fill',
   outline: 'line',
   line: 'line',
   circle: 'circle',
 };
 
-const SUFFIX_FILTERS: Record<LayerSuffix, FilterSpecification> = {
+const SUFFIX_FILTERS: Record<GeometrySuffix, FilterSpecification> = {
   fill: ['==', ['geometry-type'], 'Polygon'],
   outline: ['==', ['geometry-type'], 'Polygon'],
   line: ['==', ['geometry-type'], 'LineString'],
   circle: ['==', ['geometry-type'], 'Point'],
 };
+
+const POINT_FILTER: FilterSpecification = ['==', ['geometry-type'], 'Point'];
+const CLUSTER_FILTER: FilterSpecification = ['has', 'point_count'];
+const UNCLUSTERED_FILTER: FilterSpecification = ['!', ['has', 'point_count']];
 
 /**
  * Options for adding the map layers of a vector layer.
@@ -88,12 +95,38 @@ export function addGeoJSONSource(
   layerId: string,
   data: FeatureCollection,
   attribution?: string,
+  cluster?: { radius: number; maxZoom: number },
 ): string {
   const sourceId = sourceIdFor(layerId);
   const spec: SourceSpecification = { type: 'geojson', data };
   if (attribution) spec.attribution = attribution;
+  if (cluster) {
+    spec.cluster = true;
+    spec.clusterRadius = cluster.radius;
+    spec.clusterMaxZoom = cluster.maxZoom;
+  }
   map.addSource(sourceId, spec);
   return sourceId;
+}
+
+/**
+ * Cluster options for a GeoJSON source when a point layer's style requests
+ * clustering, or undefined otherwise (the source stays unclustered). Only
+ * applies to geojson-rendered point layers.
+ *
+ * @param geometryType - The layer's geometry category
+ * @param style - The layer style
+ * @param sourceLayer - Set for vector-tile sources (clustering is geojson-only)
+ * @returns Cluster options, or undefined
+ */
+export function clusterOptionsFor(
+  geometryType: GeometryCategory,
+  style: VectorLayerStyle,
+  sourceLayer?: string,
+): { radius: number; maxZoom: number } | undefined {
+  if (sourceLayer || geometryType !== 'point') return undefined;
+  if (pointModeOf(style) !== 'cluster') return undefined;
+  return { radius: style.clusterRadius ?? 50, maxZoom: style.clusterMaxZoom ?? 14 };
 }
 
 /**
@@ -146,32 +179,67 @@ export function addVectorTileSource(
 export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): string[] {
   const { layerId, geometryType, style, visible, opacity, sourceLayer, beforeId } = options;
   const sourceId = sourceIdFor(layerId);
-  const suffixes = suffixesForGeometry(geometryType);
-  const layerIds: string[] = [];
+  const layout = { visibility: visible ? 'visible' : 'none' };
 
   // Only honor beforeId when the target layer exists; addLayer throws
   // otherwise (e.g. a label layer absent from the active style).
   const before = beforeId && map.getLayer(beforeId) ? beforeId : undefined;
 
-  for (const suffix of suffixes) {
-    const id = mapLayerId(layerId, suffix);
-    map.addLayer(
-      {
-        id,
-        type: SUFFIX_TYPES[suffix],
-        source: sourceId,
-        ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-        filter: SUFFIX_FILTERS[suffix],
-        paint: buildPaint(suffix, style, opacity),
-        layout: { visibility: visible ? 'visible' : 'none' },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
-      before,
-    );
-    layerIds.push(id);
+  const add = (id: string, spec: Record<string, unknown>): string => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.addLayer({ id, source: sourceId, layout, ...spec } as any, before);
+    return id;
+  };
+
+  // Geojson point layers honor the style's pointMode (heatmap/cluster). Tiles
+  // (sourceLayer set) and other geometries always use the standard roles.
+  const pointMode = !sourceLayer && geometryType === 'point' ? pointModeOf(style) : 'circle';
+
+  if (pointMode === 'heatmap') {
+    return [
+      add(mapLayerId(layerId, 'heatmap'), {
+        type: 'heatmap',
+        filter: POINT_FILTER,
+        paint: buildPaint('heatmap', style, opacity),
+      }),
+    ];
   }
 
-  return layerIds;
+  if (pointMode === 'cluster') {
+    return [
+      add(mapLayerId(layerId, 'cluster'), {
+        type: 'circle',
+        filter: CLUSTER_FILTER,
+        paint: buildPaint('cluster', style, opacity),
+      }),
+      add(mapLayerId(layerId, 'cluster-count'), {
+        type: 'symbol',
+        filter: CLUSTER_FILTER,
+        layout: {
+          ...layout,
+          'text-field': ['get', 'point_count_abbreviated'],
+          'text-size': 12,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: buildPaint('cluster-count', style, opacity),
+      }),
+      add(mapLayerId(layerId, 'circle'), {
+        type: 'circle',
+        filter: UNCLUSTERED_FILTER,
+        paint: buildPaint('circle', style, opacity),
+      }),
+    ];
+  }
+
+  return suffixesForGeometry(geometryType).map((suffix) =>
+    add(mapLayerId(layerId, suffix), {
+      type: SUFFIX_TYPES[suffix],
+      ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+      filter: SUFFIX_FILTERS[suffix],
+      paint: buildPaint(suffix, style, opacity),
+    }),
+  );
 }
 
 /**

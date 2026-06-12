@@ -5,7 +5,11 @@ import type { VectorLayerInfo, VectorLayerStyle } from '../core/types';
  * A paint value: a flat scalar, or a MapLibre data-driven color expression
  * (used for attribute-driven fill/line/circle colors).
  */
-export type PaintValue = string | number | PropertyValueSpecification<string>;
+export type PaintValue =
+  | string
+  | number
+  | PropertyValueSpecification<string>
+  | PropertyValueSpecification<number>;
 
 /**
  * Default style applied to new layers.
@@ -18,7 +22,42 @@ export const DEFAULT_STYLE: VectorLayerStyle = {
   circleColor: '#3388ff',
   circleRadius: 5,
   circleOpacity: 0.85,
+  pointMode: 'circle',
+  heatmapRadius: 30,
+  heatmapIntensity: 1,
+  clusterRadius: 50,
+  clusterMaxZoom: 14,
 };
+
+// A cold->hot ramp over heatmap-density (0..1) for the heatmap renderer.
+const HEATMAP_COLOR: PropertyValueSpecification<string> = [
+  'interpolate',
+  ['linear'],
+  ['heatmap-density'],
+  0,
+  'rgba(33,102,172,0)',
+  0.2,
+  'rgb(103,169,207)',
+  0.4,
+  'rgb(209,229,240)',
+  0.6,
+  'rgb(253,219,199)',
+  0.8,
+  'rgb(239,138,98)',
+  1,
+  'rgb(178,24,43)',
+] as unknown as PropertyValueSpecification<string>;
+
+// Cluster bubble radius steps up with the aggregated point count.
+const CLUSTER_RADIUS: PropertyValueSpecification<number> = [
+  'step',
+  ['get', 'point_count'],
+  16,
+  50,
+  22,
+  200,
+  30,
+] as unknown as PropertyValueSpecification<number>;
 
 /**
  * A single setPaintProperty operation.
@@ -32,8 +71,21 @@ export interface PaintOp {
 /**
  * Suffixes of the map layers created for each vector layer.
  */
-export const LAYER_SUFFIXES = ['fill', 'outline', 'line', 'circle'] as const;
+export const LAYER_SUFFIXES = [
+  'fill',
+  'outline',
+  'line',
+  'circle',
+  'heatmap',
+  'cluster',
+  'cluster-count',
+] as const;
 export type LayerSuffix = (typeof LAYER_SUFFIXES)[number];
+
+/** Resolve a style's point render mode, defaulting to 'circle'. */
+export function pointModeOf(style: VectorLayerStyle): 'circle' | 'heatmap' | 'cluster' {
+  return style.pointMode ?? 'circle';
+}
 
 /**
  * Builds the map layer id for a vector layer and suffix.
@@ -103,6 +155,27 @@ export function buildPaint(
         'circle-stroke-width': 1,
         'circle-stroke-opacity': master,
       };
+    case 'heatmap':
+      return {
+        'heatmap-radius': style.heatmapRadius ?? 30,
+        'heatmap-intensity': style.heatmapIntensity ?? 1,
+        'heatmap-opacity': master,
+        'heatmap-color': HEATMAP_COLOR,
+      };
+    case 'cluster':
+      return {
+        'circle-color': style.circleColor,
+        'circle-radius': CLUSTER_RADIUS,
+        'circle-opacity': style.circleOpacity * master,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1,
+        'circle-stroke-opacity': master,
+      };
+    case 'cluster-count':
+      return {
+        'text-color': '#ffffff',
+        'text-opacity': master,
+      };
   }
 }
 
@@ -146,6 +219,12 @@ export function stylePatchToPaintOps(
   push('circle', 'circle-color', circleColor);
   push('circle', 'circle-radius', patch.circleRadius);
   push('circle', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
+  // Heatmap radius/intensity are plain paint updates (no rebuild needed); the
+  // cluster bubble color tracks the circle color. pointMode and cluster
+  // radius/maxZoom changes are structural and handled by the layer manager.
+  push('heatmap', 'heatmap-radius', patch.heatmapRadius);
+  push('heatmap', 'heatmap-intensity', patch.heatmapIntensity);
+  push('cluster', 'circle-color', circleColor);
 
   return ops;
 }
@@ -178,6 +257,10 @@ export function opacityToPaintOps(
   push('line', 'line-opacity', master);
   push('circle', 'circle-opacity', style.circleOpacity * master);
   push('circle', 'circle-stroke-opacity', master);
+  push('heatmap', 'heatmap-opacity', master);
+  push('cluster', 'circle-opacity', style.circleOpacity * master);
+  push('cluster', 'circle-stroke-opacity', master);
+  push('cluster-count', 'text-opacity', master);
 
   return ops;
 }

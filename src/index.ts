@@ -10,6 +10,7 @@ export { DEFAULT_AUTO_THRESHOLD } from './lib/render/renderMode';
 export type {
   AutoThreshold,
   GeometryCategory,
+  PointMode,
   RenderMode,
   VectorControlEvent,
   VectorControlEventHandler,

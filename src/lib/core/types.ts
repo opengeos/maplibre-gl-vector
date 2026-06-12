@@ -48,6 +48,15 @@ export type VectorFormat =
 export type GeometryCategory = 'point' | 'line' | 'polygon' | 'mixed' | 'unknown';
 
 /**
+ * How point features are rendered (geojson render mode only).
+ *
+ * - `'circle'` - One circle per point (the default)
+ * - `'heatmap'` - A density heatmap surface
+ * - `'cluster'` - Nearby points grouped into counted bubbles
+ */
+export type PointMode = 'circle' | 'heatmap' | 'cluster';
+
+/**
  * Input data accepted by `VectorControl.addData`: a URL, a local
  * File/Blob, or a GeoJSON object.
  */
@@ -208,6 +217,33 @@ export interface VectorLayerStyle {
   lineColorExpression?: PropertyValueSpecification<string>;
   /** Optional data-driven override for the point circle color. */
   circleColorExpression?: PropertyValueSpecification<string>;
+  /**
+   * How point features are rendered. Only applies to point layers in the
+   * `'geojson'` render mode (tiles always use circles).
+   * @default 'circle'
+   */
+  pointMode?: PointMode;
+  /**
+   * Heatmap kernel radius in pixels (when `pointMode` is `'heatmap'`).
+   * @default 30
+   */
+  heatmapRadius?: number;
+  /**
+   * Heatmap intensity multiplier (when `pointMode` is `'heatmap'`).
+   * @default 1
+   */
+  heatmapIntensity?: number;
+  /**
+   * Cluster radius in pixels (when `pointMode` is `'cluster'`).
+   * @default 50
+   */
+  clusterRadius?: number;
+  /**
+   * Maximum zoom at which points still cluster (when `pointMode` is
+   * `'cluster'`).
+   * @default 14
+   */
+  clusterMaxZoom?: number;
 }
 
 /**
