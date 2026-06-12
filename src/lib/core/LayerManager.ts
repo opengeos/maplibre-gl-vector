@@ -1,4 +1,4 @@
-import type { GeoJSONSource, Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
+import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import type {
   RenderMode,
@@ -58,6 +58,12 @@ interface LayerRecord {
   source: VectorDataSource;
   sourceLayer?: string;
   fileName?: string;
+  /**
+   * The FeatureCollection backing a geojson-rendered layer, cached so a
+   * structural restyle (pointMode/cluster change) can rebuild the source and
+   * layers without re-fetching or reading it back from the map.
+   */
+  geojson?: FeatureCollection;
   /** Set once the source has been ingested into the engine */
   tableName?: string;
   /**
@@ -347,17 +353,17 @@ export class LayerManager {
    * without re-fetching. Preserves the picker.
    */
   private _rebuildPointLayers(record: LayerRecord): void {
+    // Use the cached FeatureCollection: reading it back from the map via
+    // source.serialize() is unreliable for a clustered source.
+    const collection = record.geojson;
+    if (!collection) return;
     const sourceId = record.info.sourceId;
-    const source = this._map.getSource(sourceId) as GeoJSONSource | undefined;
-    if (!source) return;
-    const data = (source.serialize() as { data?: unknown }).data;
-    if (!data || typeof data === 'string') return;
     this._detachPicker(record);
     removeLayersAndSource(this._map, record.info.layerIds, sourceId);
     addGeoJSONSource(
       this._map,
       record.info.id,
-      data as FeatureCollection,
+      collection,
       this._options.attribution,
       clusterOptionsFor(record.info.geometryType, record.info.style),
     );
@@ -633,6 +639,7 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
+    record.geojson = collection;
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -773,6 +780,7 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
+    record.geojson = collection;
     addGeoJSONSource(
       this._map,
       record.info.id,
