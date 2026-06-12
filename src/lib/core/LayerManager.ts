@@ -639,7 +639,9 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
-    record.geojson = collection;
+    // Only point layers use the cached collection (for a pointMode rebuild), so
+    // don't pin a full copy of polygon/line data in the JS heap.
+    record.geojson = summary.geometryType === 'point' ? collection : undefined;
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -743,6 +745,9 @@ export class LayerManager {
     );
 
     record.info.renderMode = 'tiles';
+    // Tiles never rebuild from a cached collection; drop any copy from a prior
+    // geojson render so it isn't pinned in the heap.
+    record.geojson = undefined;
     addVectorTileSource(this._map, id, {
       tileUrl: tileUrlFor(providerKey),
       maxzoom: this._options.maxTileZoom ?? DEFAULT_MAX_TILE_ZOOM,
@@ -780,7 +785,8 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
-    record.geojson = collection;
+    // Only point layers use the cached collection (for a pointMode rebuild).
+    record.geojson = record.info.geometryType === 'point' ? collection : undefined;
     addGeoJSONSource(
       this._map,
       record.info.id,
