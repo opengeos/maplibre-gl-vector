@@ -13,11 +13,18 @@ import type { EngineProvider } from '../engine/types';
 import type { VectorSourceDescriptor } from './types';
 import { detectSource } from '../formats/detect';
 import { decideRenderMode } from '../render/renderMode';
-import { DEFAULT_STYLE, applyOpacity, applyStyle, clampOpacity } from '../render/styleBuilder';
+import {
+  DEFAULT_STYLE,
+  applyOpacity,
+  applyStyle,
+  clampOpacity,
+  pointModeOf,
+} from '../render/styleBuilder';
 import {
   addGeoJSONSource,
   addGeometryLayers,
   addVectorTileSource,
+  clusterOptionsFor,
   removeLayersAndSource,
   setLayersVisibility,
   sourceIdFor,
@@ -51,6 +58,12 @@ interface LayerRecord {
   source: VectorDataSource;
   sourceLayer?: string;
   fileName?: string;
+  /**
+   * The FeatureCollection backing a geojson-rendered layer, cached so a
+   * structural restyle (pointMode/cluster change) can rebuild the source and
+   * layers without re-fetching or reading it back from the map.
+   */
+  geojson?: FeatureCollection;
   /** Set once the source has been ingested into the engine */
   tableName?: string;
   /**
@@ -299,9 +312,70 @@ export class LayerManager {
   setLayerStyle(id: string, patch: Partial<VectorLayerStyle>): void {
     const record = this._records.get(id);
     if (!record) return;
-    applyStyle(this._map, record.info, patch, record.info.opacity);
-    record.info.style = { ...record.info.style, ...patch };
+    const prev = record.info.style;
+    const next = { ...prev, ...patch };
+    record.info.style = next;
+    // pointMode (and cluster radius/maxZoom) are structural: they change the
+    // layer types and/or the source's clustering, which setPaintProperty cannot
+    // express, so rebuild the layers instead of patching paint.
+    if (this._isStructuralPointChange(record, prev, next)) {
+      this._rebuildPointLayers(record);
+    } else {
+      applyStyle(this._map, record.info, patch, record.info.opacity);
+    }
     this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
+   * Whether a style change requires rebuilding a geojson point layer's map
+   * layers (a pointMode switch, or a cluster radius/maxZoom change while
+   * clustered) rather than a plain paint update.
+   */
+  private _isStructuralPointChange(
+    record: LayerRecord,
+    prev: VectorLayerStyle,
+    next: VectorLayerStyle,
+  ): boolean {
+    if (record.info.renderMode !== 'geojson' || record.info.geometryType !== 'point') {
+      return false;
+    }
+    if (pointModeOf(prev) !== pointModeOf(next)) return true;
+    return (
+      pointModeOf(next) === 'cluster' &&
+      ((prev.clusterRadius ?? 50) !== (next.clusterRadius ?? 50) ||
+        (prev.clusterMaxZoom ?? 14) !== (next.clusterMaxZoom ?? 14))
+    );
+  }
+
+  /**
+   * Rebuilds a geojson point layer's source and map layers from the data
+   * already held by the source, so a pointMode/cluster change takes effect
+   * without re-fetching. Preserves the picker.
+   */
+  private _rebuildPointLayers(record: LayerRecord): void {
+    // Use the cached FeatureCollection: reading it back from the map via
+    // source.serialize() is unreliable for a clustered source.
+    const collection = record.geojson;
+    if (!collection) return;
+    const sourceId = record.info.sourceId;
+    this._detachPicker(record);
+    removeLayersAndSource(this._map, record.info.layerIds, sourceId);
+    addGeoJSONSource(
+      this._map,
+      record.info.id,
+      collection,
+      this._options.attribution,
+      clusterOptionsFor(record.info.geometryType, record.info.style),
+    );
+    record.info.layerIds = addGeometryLayers(this._map, {
+      layerId: record.info.id,
+      geometryType: record.info.geometryType,
+      style: record.info.style,
+      visible: record.info.visible,
+      opacity: record.info.opacity,
+      beforeId: record.info.beforeId,
+    });
+    this._attachPicker(record);
   }
 
   /**
@@ -565,7 +639,16 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
-    addGeoJSONSource(this._map, record.info.id, collection, this._options.attribution);
+    // Only point layers use the cached collection (for a pointMode rebuild), so
+    // don't pin a full copy of polygon/line data in the JS heap.
+    record.geojson = summary.geometryType === 'point' ? collection : undefined;
+    addGeoJSONSource(
+      this._map,
+      record.info.id,
+      collection,
+      this._options.attribution,
+      clusterOptionsFor(summary.geometryType, record.info.style),
+    );
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: summary.geometryType,
@@ -662,6 +745,9 @@ export class LayerManager {
     );
 
     record.info.renderMode = 'tiles';
+    // Tiles never rebuild from a cached collection; drop any copy from a prior
+    // geojson render so it isn't pinned in the heap.
+    record.geojson = undefined;
     addVectorTileSource(this._map, id, {
       tileUrl: tileUrlFor(providerKey),
       maxzoom: this._options.maxTileZoom ?? DEFAULT_MAX_TILE_ZOOM,
@@ -699,7 +785,15 @@ export class LayerManager {
     }
 
     record.info.renderMode = 'geojson';
-    addGeoJSONSource(this._map, record.info.id, collection, this._options.attribution);
+    // Only point layers use the cached collection (for a pointMode rebuild).
+    record.geojson = record.info.geometryType === 'point' ? collection : undefined;
+    addGeoJSONSource(
+      this._map,
+      record.info.id,
+      collection,
+      this._options.attribution,
+      clusterOptionsFor(record.info.geometryType, record.info.style),
+    );
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: record.info.geometryType,
