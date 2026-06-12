@@ -164,7 +164,9 @@ export function buildPaint(
       };
     case 'cluster':
       return {
-        'circle-color': style.circleColor,
+        // Use the resolved circleColor (data-driven expression or flat) so an
+        // initial cluster render honors the same color contract as a later patch.
+        'circle-color': circleColor,
         'circle-radius': CLUSTER_RADIUS,
         'circle-opacity': style.circleOpacity * master,
         'circle-stroke-color': '#ffffff',
@@ -220,11 +222,12 @@ export function stylePatchToPaintOps(
   push('circle', 'circle-radius', patch.circleRadius);
   push('circle', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
   // Heatmap radius/intensity are plain paint updates (no rebuild needed); the
-  // cluster bubble color tracks the circle color. pointMode and cluster
+  // cluster bubble tracks the circle color and opacity. pointMode and cluster
   // radius/maxZoom changes are structural and handled by the layer manager.
   push('heatmap', 'heatmap-radius', patch.heatmapRadius);
   push('heatmap', 'heatmap-intensity', patch.heatmapIntensity);
   push('cluster', 'circle-color', circleColor);
+  push('cluster', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
 
   return ops;
 }

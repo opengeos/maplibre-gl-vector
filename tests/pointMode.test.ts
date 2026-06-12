@@ -70,6 +70,12 @@ describe('buildPaint', () => {
     expect(paint['circle-color']).toBe('#abcdef');
     expect(Array.isArray(paint['circle-radius'])).toBe(true);
   });
+
+  it('honors a circle color expression on the initial cluster render', () => {
+    const expr = ['match', ['get', 'cat'], 'a', '#ff0000', '#000000'] as never;
+    const paint = buildPaint('cluster', style({ circleColorExpression: expr }));
+    expect(paint['circle-color']).toEqual(expr);
+  });
 });
 
 describe('addGeoJSONSource clustering', () => {
@@ -138,6 +144,23 @@ describe('stylePatchToPaintOps', () => {
       layerId: 'pts-heatmap',
       property: 'heatmap-intensity',
       value: 3,
+    });
+  });
+
+  it('updates color and opacity on the cluster bubble layer too', () => {
+    const ops = stylePatchToPaintOps(
+      { id: 'pts', layerIds: ['pts-cluster', 'pts-cluster-count', 'pts-circle'] },
+      { circleColor: '#123456', circleOpacity: 0.5 },
+    );
+    expect(ops).toContainEqual({
+      layerId: 'pts-cluster',
+      property: 'circle-color',
+      value: '#123456',
+    });
+    expect(ops).toContainEqual({
+      layerId: 'pts-cluster',
+      property: 'circle-opacity',
+      value: 0.5,
     });
   });
 });
