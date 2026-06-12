@@ -185,6 +185,20 @@ export interface VectorControlOptions {
    * own origin. Defaults to jsDelivr when unset.
    */
   duckdbWasmBaseUrl?: string;
+
+  /**
+   * Base URL to load sql.js from instead of the default jsDelivr CDN.
+   *
+   * sql.js is loaded on demand only when a GeoPackage is added, to repair
+   * files missing the `gpkg_ogr_contents` feature-count table (without it,
+   * GDAL crashes single-threaded DuckDB-WASM with a thread-constructor error).
+   * The base must mirror jsDelivr's layout for the pinned sql.js version: a
+   * `/dist/sql-wasm.js` UMD script plus the matching `/dist/sql-wasm.wasm`.
+   * Set this alongside {@link duckdbWasmBaseUrl} to fully self-host and avoid
+   * the `script-src https://cdn.jsdelivr.net` CSP allowance. Defaults to
+   * jsDelivr when unset.
+   */
+  sqlJsBaseUrl?: string;
 }
 
 /**
