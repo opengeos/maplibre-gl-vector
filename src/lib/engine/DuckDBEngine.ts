@@ -4,6 +4,7 @@ import type { IEngine, IngestOptions, IngestSummary } from './types';
 import type { Bbox } from '../utils/geometry';
 import { mergeGeometryCategory } from '../utils/geometry';
 import { loadDuckDB, type LoadedDuckDB } from './duckdbLoader';
+import { ensureGpkgFeatureCount } from './gpkgOgrContents';
 import { encodeTileFromFeatures, tileBbox4326 } from '../tiles/mvtFallback';
 import { assertRemoteFileSupported, probeRemoteSize } from '../utils/remote';
 import {
@@ -42,6 +43,12 @@ export interface CreateEngineOptions {
    * {@link loadDuckDB}.
    */
   baseUrl?: string;
+  /**
+   * Base URL to load sql.js from instead of jsDelivr. sql.js is used to repair
+   * GeoPackages missing `gpkg_ogr_contents` before reading. See
+   * {@link ensureGpkgFeatureCount}.
+   */
+  sqlJsBaseUrl?: string;
 }
 
 /**
@@ -144,14 +151,17 @@ export class DuckDBEngine implements IEngine {
    * released with their table.
    */
   private _sharedFiles = new Map<Blob, string>();
+  private _sqlJsBaseUrl?: string;
 
   /**
    * Creates an engine wrapper over a loaded DuckDB instance.
    *
    * @param loaded - The loaded database and connection
+   * @param sqlJsBaseUrl - Optional sql.js base URL for the GeoPackage repair
    */
-  constructor(loaded: LoadedDuckDB) {
+  constructor(loaded: LoadedDuckDB, sqlJsBaseUrl?: string) {
     this._loaded = loaded;
+    this._sqlJsBaseUrl = sqlJsBaseUrl;
   }
 
   /** Whether the loaded build supports native ST_AsMVT tiles. */
@@ -350,7 +360,14 @@ export class DuckDBEngine implements IEngine {
 
     const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'bin';
     const name = `${registrationName}.${extension.toLowerCase()}`;
-    const buffer = new Uint8Array(await source.arrayBuffer());
+    let buffer: Uint8Array = new Uint8Array(await source.arrayBuffer());
+
+    // GeoPackages without gpkg_ogr_contents crash ST_Read on single-threaded
+    // DuckDB-WASM; repair the buffer before registering it. See
+    // gpkgOgrContents.ts.
+    if (options.format === 'geopackage') {
+      buffer = await ensureGpkgFeatureCount(buffer, this._sqlJsBaseUrl);
+    }
 
     // GDAL's /vsizip handler cannot read a DuckDB-WASM registerFileBuffer
     // archive (the virtual filesystem it opens through is GDAL's own, not
@@ -558,5 +575,5 @@ export class DuckDBEngine implements IEngine {
 export async function createEngine(options?: CreateEngineOptions): Promise<IEngine> {
   const loaded = await loadDuckDB(options?.onProgress, options?.baseUrl);
   options?.onProgress?.(`DuckDB ${loaded.version} ready`);
-  return new DuckDBEngine(loaded);
+  return new DuckDBEngine(loaded, options?.sqlJsBaseUrl);
 }

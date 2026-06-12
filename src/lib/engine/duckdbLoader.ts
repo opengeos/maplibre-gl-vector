@@ -94,6 +94,35 @@ export function importFromCdn(url: string): Promise<Record<string, unknown>> {
   return dynamicImport(url);
 }
 
+const cdnScriptPromises = new Map<string, Promise<void>>();
+
+/**
+ * Loads a classic (non-module) script from a URL via a `<script>` tag, once per
+ * URL. Used for UMD CDN bundles that publish a global rather than an ES module
+ * (e.g. sql.js, whose `/+esm` build cannot be bundled because it imports `fs`).
+ *
+ * @param url - Script URL
+ * @returns Resolves when the script has loaded
+ */
+export function loadScriptFromCdn(url: string): Promise<void> {
+  let promise = cdnScriptPromises.get(url);
+  if (!promise) {
+    promise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        cdnScriptPromises.delete(url);
+        reject(new Error(`Failed to load script: ${url}`));
+      };
+      document.head.appendChild(script);
+    });
+    cdnScriptPromises.set(url, promise);
+  }
+  return promise;
+}
+
 /**
  * Loads DuckDB-WASM from jsDelivr, instantiates it in a worker, loads
  * the spatial extension, and probes MVT support.
