@@ -446,6 +446,7 @@ export class VectorControl implements IControl {
         onProgress: (message) => this._emit('loading', { message }),
         baseUrl: this._options.duckdbWasmBaseUrl,
         sqlJsBaseUrl: this._options.sqlJsBaseUrl,
+        spatialExtensionPath: this._options.spatialExtensionPath,
       });
       // Allow a retry on the next request when engine creation fails
       // (e.g. the CDN was unreachable).

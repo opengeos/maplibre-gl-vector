@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { rebaseDuckDBBundles, DUCKDB_CDN_BASE } from '../src/lib/engine/duckdbLoader';
+import {
+  rebaseDuckDBBundles,
+  spatialExtensionLoadSql,
+  DUCKDB_CDN_BASE,
+} from '../src/lib/engine/duckdbLoader';
 
 /** Mirrors the shape duckdb-wasm's getJsDelivrBundles() returns. */
 const sampleBundles = () => ({
@@ -46,5 +50,30 @@ describe('rebaseDuckDBBundles', () => {
     const bundles = sampleBundles();
     rebaseDuckDBBundles(bundles, '/vendor/x');
     expect(bundles.eh.mainModule).toBe(`${DUCKDB_CDN_BASE}/dist/duckdb-eh.wasm`);
+  });
+});
+
+describe('spatialExtensionLoadSql', () => {
+  it('installs from the remote repository by default', () => {
+    expect(spatialExtensionLoadSql()).toBe('INSTALL spatial; LOAD spatial;');
+    expect(spatialExtensionLoadSql('')).toBe('INSTALL spatial; LOAD spatial;');
+  });
+
+  it('loads a local extension path without a remote INSTALL', () => {
+    expect(spatialExtensionLoadSql('/vendor/spatial.duckdb_extension')).toBe(
+      "LOAD '/vendor/spatial.duckdb_extension'",
+    );
+  });
+
+  it('normalizes Windows path separators', () => {
+    expect(spatialExtensionLoadSql('C:\\ext\\spatial.duckdb_extension')).toBe(
+      "LOAD 'C:/ext/spatial.duckdb_extension'",
+    );
+  });
+
+  it('escapes single quotes in the path literal', () => {
+    expect(spatialExtensionLoadSql("/o'brien/spatial.duckdb_extension")).toBe(
+      "LOAD '/o''brien/spatial.duckdb_extension'",
+    );
   });
 });
