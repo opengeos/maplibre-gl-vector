@@ -12,6 +12,7 @@ import type {
 import type { EngineProvider } from '../engine/types';
 import type { VectorSourceDescriptor } from './types';
 import { detectSource } from '../formats/detect';
+import { sniffRemoteGeoJSON } from '../formats/geojsonSniff';
 import { decideRenderMode } from '../render/renderMode';
 import {
   DEFAULT_STYLE,
@@ -178,6 +179,27 @@ export class LayerManager {
       throw new Error(`Layer "${id}" already exists`);
     }
 
+    // Extensionless remote URLs (OGC API Features / ArcGIS `f=geojson`, custom
+    // service endpoints with query strings) return GeoJSON the file-name
+    // detector classifies as 'unknown', which would route to the DuckDB engine
+    // and its remote spatial-extension install -- a hang in sandboxed/offline
+    // environments. Sniff the response first so a GeoJSON endpoint stays on the
+    // pure-JS path; the fetched data is reused so it is not re-downloaded.
+    let prefetchedGeoJSON: { collection: FeatureCollection; byteSize?: number } | undefined;
+    if (
+      detected.format === 'unknown' &&
+      !options.format &&
+      options.renderMode !== 'tiles' &&
+      typeof source === 'string' &&
+      !source.startsWith('data:')
+    ) {
+      const sniffed = await sniffRemoteGeoJSON(source);
+      if (sniffed) {
+        detected.format = 'geojson';
+        prefetchedGeoJSON = sniffed;
+      }
+    }
+
     // Reject remote files DuckDB-WASM cannot open BEFORE the engine
     // download starts, so the error is immediate.
     const engineBound = !(detected.format === 'geojson' && options.renderMode !== 'tiles');
@@ -227,7 +249,7 @@ export class LayerManager {
 
     try {
       if (detected.format === 'geojson' && options.renderMode !== 'tiles') {
-        await this._addGeoJSON(record, options);
+        await this._addGeoJSON(record, options, prefetchedGeoJSON);
       } else {
         await this._addViaEngine(record, options);
       }
@@ -615,9 +637,17 @@ export class LayerManager {
   /**
    * Loads a GeoJSON source entirely in JavaScript (no DuckDB), falling
    * back to the engine when auto mode trips the size thresholds.
+   *
+   * @param prefetched - A collection already fetched by the URL GeoJSON
+   *   sniff, reused so an extensionless GeoJSON endpoint is not requested
+   *   twice.
    */
-  private async _addGeoJSON(record: LayerRecord, options: VectorLayerOptions): Promise<void> {
-    const { collection, byteSize } = await this._resolveGeoJSON(record.source);
+  private async _addGeoJSON(
+    record: LayerRecord,
+    options: VectorLayerOptions,
+    prefetched?: { collection: FeatureCollection; byteSize?: number },
+  ): Promise<void> {
+    const { collection, byteSize } = prefetched ?? (await this._resolveGeoJSON(record.source));
     const summary = summarizeFeatureCollection(collection);
 
     record.info.featureCount = summary.featureCount;

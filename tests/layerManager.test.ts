@@ -533,6 +533,117 @@ describe('LayerManager layer operations', () => {
   });
 });
 
+describe('LayerManager extensionless URL sniffing', () => {
+  /** GeoJSON Response stub for a JSON-typed body. */
+  function geojsonResponse() {
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (n: string) => (n.toLowerCase() === 'content-type' ? 'application/geo+json' : null) },
+      text: async () => JSON.stringify(POLYGON_FC),
+      body: { cancel: vi.fn(async () => undefined) },
+    };
+  }
+
+  it('loads an extensionless GeoJSON endpoint without the engine, fetching once', async () => {
+    const engine = createMockEngine();
+    const { manager, map } = createManager({}, engine);
+    const fetchMock = vi.fn().mockResolvedValue(geojsonResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const info = await manager.addData(
+      'https://api.example.com/collections/buildings/items?f=geojson',
+      { id: 'ogc' },
+    );
+
+    expect(info.format).toBe('geojson');
+    expect(info.renderMode).toBe('geojson');
+    // Source descriptor stays URL-backed so a host can persist/reload it.
+    expect(info.source).toEqual({
+      kind: 'url',
+      url: 'https://api.example.com/collections/buildings/items?f=geojson',
+    });
+    expect(engine.ingest).not.toHaveBeenCalled();
+    // One GET for the sniff, reused for rendering (no second fetch, no HEAD).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(map.addSource).toHaveBeenCalledWith('ogc-source', expect.objectContaining({ type: 'geojson' }));
+  });
+
+  it('falls through to the engine for an extensionless non-JSON endpoint', async () => {
+    const engine = createMockEngine();
+    const { manager } = createManager({}, engine);
+    const fetchMock = vi.fn((_url: string, init?: { method?: string }) => {
+      if (init?.method === 'HEAD') {
+        return Promise.resolve({ ok: true, headers: { get: () => null } });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/octet-stream' },
+        text: async () => 'PAR1',
+        body: { cancel: vi.fn(async () => undefined) },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await manager.addData('https://files.example.com/export?format=parquet', { id: 'bin' });
+
+    expect(engine.ingest).toHaveBeenCalledWith(
+      'https://files.example.com/export?format=parquet',
+      't_bin',
+      expect.anything(),
+    );
+  });
+
+  it('skips the sniff when tiles are explicitly requested', async () => {
+    const engine = createMockEngine({
+      ingest: vi.fn(async (_s, tableName) => ({
+        tableName,
+        featureCount: 1_000_000,
+        bbox: [0, 0, 10, 10] as [number, number, number, number],
+        geometryType: 'polygon' as const,
+      })),
+    });
+    const { manager } = createManager({}, engine);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, headers: { get: () => null } });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const info = await manager.addData('https://api.example.com/items?f=geojson', {
+      id: 'tiled',
+      renderMode: 'tiles',
+    });
+
+    expect(info.renderMode).toBe('tiles');
+    expect(engine.ingest).toHaveBeenCalled();
+    // No GeoJSON GET sniff; only the engine's HEAD size probe.
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'https://api.example.com/items?f=geojson',
+      undefined,
+    );
+  });
+
+  it('skips the sniff when an explicit format is given', async () => {
+    const engine = createMockEngine();
+    const { manager } = createManager({}, engine);
+    const fetchMock = vi.fn((_url: string, init?: { method?: string }) =>
+      Promise.resolve(
+        init?.method === 'HEAD'
+          ? { ok: true, headers: { get: () => null } }
+          : { ok: true, status: 200, headers: { get: () => null }, text: async () => '', body: { cancel: vi.fn() } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await manager.addData('https://api.example.com/items', { id: 'forced', format: 'geoparquet' });
+
+    expect(engine.ingest).toHaveBeenCalledWith(
+      'https://api.example.com/items',
+      't_forced',
+      expect.objectContaining({ format: 'geoparquet' }),
+    );
+  });
+});
+
 describe('LayerManager reloadLayer', () => {
   function fcWithFeatures(count: number): FeatureCollection {
     return {

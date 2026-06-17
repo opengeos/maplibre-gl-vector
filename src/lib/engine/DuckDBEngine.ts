@@ -49,6 +49,12 @@ export interface CreateEngineOptions {
    * {@link ensureGpkgFeatureCount}.
    */
   sqlJsBaseUrl?: string;
+  /**
+   * Path/URL to a prebuilt spatial extension. When set, the remote
+   * `INSTALL spatial` is skipped in favour of `LOAD '<path>'`. See
+   * {@link loadDuckDB}.
+   */
+  spatialExtensionPath?: string;
 }
 
 /**
@@ -573,7 +579,11 @@ export class DuckDBEngine implements IEngine {
  * @returns The ready engine
  */
 export async function createEngine(options?: CreateEngineOptions): Promise<IEngine> {
-  const loaded = await loadDuckDB(options?.onProgress, options?.baseUrl);
+  const loaded = await loadDuckDB(
+    options?.onProgress,
+    options?.baseUrl,
+    options?.spatialExtensionPath,
+  );
   options?.onProgress?.(`DuckDB ${loaded.version} ready`);
   return new DuckDBEngine(loaded, options?.sqlJsBaseUrl);
 }

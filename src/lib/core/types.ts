@@ -199,6 +199,19 @@ export interface VectorControlOptions {
    * jsDelivr when unset.
    */
   sqlJsBaseUrl?: string;
+
+  /**
+   * Path or URL to a prebuilt DuckDB spatial extension.
+   *
+   * When set, the engine loads the extension with `LOAD '<path>'` and skips
+   * the remote `INSTALL spatial` step. Use this in sandboxed or firewalled
+   * environments where DuckDB's extension repository is unreachable: without
+   * it, loading a non-GeoJSON source (or any source routed through the engine)
+   * hangs indefinitely on the blocked `INSTALL spatial`. The path must point at
+   * an extension built for the pinned duckdb-wasm version's DuckDB core.
+   * Defaults to a remote `INSTALL spatial; LOAD spatial;` when unset.
+   */
+  spatialExtensionPath?: string;
 }
 
 /**

@@ -74,6 +74,23 @@ export interface LoadedDuckDB {
 }
 
 /**
+ * Builds the SQL that loads the spatial extension.
+ *
+ * With no path, the extension is installed from DuckDB's remote repository
+ * (`INSTALL spatial; LOAD spatial;`). With a path, the remote INSTALL is
+ * skipped in favour of `LOAD '<path>'` so the load works offline; the path is
+ * normalized (Windows separators) and single-quote-escaped for the literal.
+ *
+ * @param spatialExtensionPath - Optional path/URL to a prebuilt extension
+ * @returns The SQL statement(s) to run on a fresh connection
+ */
+export function spatialExtensionLoadSql(spatialExtensionPath?: string): string {
+  if (!spatialExtensionPath) return 'INSTALL spatial; LOAD spatial;';
+  const normalized = spatialExtensionPath.replace(/\\/g, '/').replace(/'/g, "''");
+  return `LOAD '${normalized}'`;
+}
+
+/**
  * Imports a module by URL at runtime without bundler interference.
  * Indirection through Function keeps Vite/webpack/rollup from trying to
  * resolve or rewrite the CDN import.
@@ -132,11 +149,17 @@ export function loadScriptFromCdn(url: string): Promise<void> {
  *   jsDelivr. Must mirror jsDelivr's layout (`/+esm` plus `/dist/*`) for the
  *   pinned {@link DUCKDB_WASM_VERSION}; lets a host self-host the assets and
  *   avoid the CDN (and the CSP allowance it requires).
+ * @param spatialExtensionPath - Optional path/URL to a prebuilt spatial
+ *   extension. When set, the spatial extension is loaded with `LOAD '<path>'`
+ *   and the remote `INSTALL spatial` step is skipped, so the load does not hang
+ *   in sandboxed or firewalled environments where DuckDB's extension repository
+ *   is unreachable.
  * @returns The loaded database, connection, and capabilities
  */
 export async function loadDuckDB(
   onProgress?: (message: string) => void,
   baseUrl?: string,
+  spatialExtensionPath?: string,
 ): Promise<LoadedDuckDB> {
   onProgress?.('Loading DuckDB-WASM...');
   const base = (baseUrl ?? DUCKDB_CDN_BASE).replace(/\/+$/, '');
@@ -160,7 +183,7 @@ export async function loadDuckDB(
 
   onProgress?.('Loading spatial extension...');
   const conn: DuckDBConnection = await db.connect();
-  await conn.query('INSTALL spatial; LOAD spatial;');
+  await conn.query(spatialExtensionLoadSql(spatialExtensionPath));
 
   const versionRows = (await conn.query('SELECT version() AS v')).toArray();
   const version = String(versionRows[0]?.v ?? 'unknown');
