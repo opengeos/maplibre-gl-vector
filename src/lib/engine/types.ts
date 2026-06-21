@@ -14,6 +14,13 @@ export interface IngestOptions {
   fileName?: string;
   /** Requested ingest mode (streaming applies to GeoParquet only) */
   mode?: IngestMode;
+  /**
+   * Sidecar files for a loose shapefile (`.shx`, `.dbf`, `.prj`, `.cpg`, ...)
+   * picked together with the `.shp`. Registered under the `.shp`'s base name so
+   * GDAL's shapefile driver can resolve them when reading the `.shp` directly.
+   * Ignored for non-shapefile or zipped sources.
+   */
+  companionFiles?: File[];
 }
 
 /**

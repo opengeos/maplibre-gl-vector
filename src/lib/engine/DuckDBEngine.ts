@@ -30,7 +30,7 @@ import {
   summaryQuery,
   tileFeaturesQuery,
 } from './sql';
-import { registerZippedShapefile } from '../formats/shapefile';
+import { registerLooseShapefile, registerZippedShapefile } from '../formats/shapefile';
 
 /**
  * Options for creating the DuckDB engine.
@@ -383,6 +383,28 @@ export class DuckDBEngine implements IEngine {
     if (options.format === 'shapefile' && /\.zip$/i.test(name)) {
       const shpPath = await registerZippedShapefile(
         buffer,
+        registrationName,
+        (componentName, bytes) =>
+          this._loaded.db.registerFileBuffer(componentName, bytes),
+      );
+      this._sharedFiles.set(source, shpPath);
+      return shpPath;
+    }
+
+    // A loose `.shp` picked together with its sidecars (`.shx`, `.dbf`, ...):
+    // register every component under one base name so GDAL resolves the
+    // siblings when reading the `.shp` directly. Without this a lone `.shp`
+    // fails with "GDALOpen() called on x.shp recursively".
+    if (options.format === 'shapefile' && options.companionFiles?.length) {
+      const components = await Promise.all(
+        options.companionFiles.map(async (file) => ({
+          extension: file.name.slice(file.name.lastIndexOf('.')),
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })),
+      );
+      const shpPath = await registerLooseShapefile(
+        buffer,
+        components,
         registrationName,
         (componentName, bytes) =>
           this._loaded.db.registerFileBuffer(componentName, bytes),

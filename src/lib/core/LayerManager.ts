@@ -59,6 +59,8 @@ interface LayerRecord {
   source: VectorDataSource;
   sourceLayer?: string;
   fileName?: string;
+  /** Sidecar files for a loose shapefile, registered alongside its `.shp`. */
+  companionFiles?: File[];
   /**
    * The FeatureCollection backing a geojson-rendered layer, cached so a
    * structural restyle (pointMode/cluster change) can rebuild the source and
@@ -243,6 +245,7 @@ export class LayerManager {
       source,
       sourceLayer: options.sourceLayer,
       fileName: typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+      companionFiles: options.companionFiles,
     };
 
     this._emit('loading', { message: `Loading ${name}...` });
@@ -595,6 +598,10 @@ export class LayerManager {
       format: detected.format,
       fileName:
         typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+      // A loose shapefile must register its sidecars on this first probe too:
+      // the engine caches the registration by source, so a companion-less
+      // probe would leave the cached `.shp` unreadable for the later ingest.
+      companionFiles: options.companionFiles,
     });
     if (layerNames.length <= 1) return null;
 
@@ -736,6 +743,7 @@ export class LayerManager {
       sourceLayer: record.sourceLayer,
       fileName: record.fileName ?? this._defaultFileName(record),
       mode: record.info.ingestMode,
+      companionFiles: record.companionFiles,
     });
     record.tableName = summary.tableName;
     // The engine falls back to a table for formats streaming

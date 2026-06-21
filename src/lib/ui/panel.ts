@@ -11,6 +11,7 @@ import type {
 } from '../core/types';
 import { el, svgIcon, ICONS } from './dom';
 import { createLayerListItem } from './layerListItem';
+import { groupShapefileComponents } from '../formats/shapefile';
 
 /**
  * The control surface the panel UI talks to. `VectorControl` satisfies
@@ -309,8 +310,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   }
 
   function loadFiles(files: FileList): void {
-    for (const file of Array.from(files)) {
-      void control.addData(file, loadOptions()).catch(() => {
+    // Group loose shapefile components selected together so a `.shp` loads with
+    // its `.shx`/`.dbf`/`.prj`/... siblings as one layer, instead of the `.shp`
+    // failing for missing siblings and each sidecar loading as its own layer.
+    for (const { file, companions } of groupShapefileComponents(Array.from(files))) {
+      const options =
+        companions.length > 0
+          ? { ...loadOptions(), companionFiles: companions }
+          : loadOptions();
+      void control.addData(file, options).catch(() => {
         // Error already surfaced through the 'error' event.
       });
     }

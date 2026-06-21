@@ -403,6 +403,14 @@ export interface VectorLayerOptions {
    * @default 'table'
    */
   ingestMode?: IngestMode;
+
+  /**
+   * Sidecar files for a loose shapefile picked together with the `.shp`
+   * (`.shx`, `.dbf`, `.prj`, `.cpg`, ...). They are registered under the
+   * `.shp`'s base name so GDAL can resolve them; without at least the `.shx`
+   * and `.dbf` the `.shp` cannot be read. Ignored for non-shapefile sources.
+   */
+  companionFiles?: File[];
 }
 
 /**
