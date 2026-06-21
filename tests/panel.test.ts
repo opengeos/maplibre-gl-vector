@@ -267,3 +267,60 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 });
+
+describe('renderPanelUI file input', () => {
+  function selectFiles(container: HTMLElement, files: File[]): void {
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')!;
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: {
+        length: files.length,
+        item: (i: number) => files[i] ?? null,
+        ...files,
+        [Symbol.iterator]: function* () {
+          yield* files;
+        },
+      },
+    });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  it('loads a loose shapefile as one layer, passing the sidecars as companionFiles', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({ container, control: host });
+
+    const shp = new File(['shp'], 'cities.shp');
+    const shx = new File(['shx'], 'cities.shx');
+    const dbf = new File(['dbf'], 'cities.dbf');
+    selectFiles(container, [shp, shx, dbf]);
+
+    // Only the .shp loads; the sidecars ride along as companionFiles instead of
+    // failing as their own layers.
+    expect(host.addData).toHaveBeenCalledTimes(1);
+    const [source, options] = (host.addData as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(source).toBe(shp);
+    expect(options.companionFiles).toEqual([shx, dbf]);
+
+    dispose();
+  });
+
+  it('loads non-shapefile files individually without companionFiles', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({ container, control: host });
+
+    const a = new File(['a'], 'a.geojson');
+    const b = new File(['b'], 'b.parquet');
+    selectFiles(container, [a, b]);
+
+    expect(host.addData).toHaveBeenCalledTimes(2);
+    for (const call of (host.addData as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[1].companionFiles).toBeUndefined();
+    }
+
+    dispose();
+  });
+});
