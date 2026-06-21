@@ -209,6 +209,25 @@ await control.addData("city.gpkg", { sourceLayer: "roads" });
 
 Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
 
+### Restorable local files
+
+A layer loaded from a URL can be recreated from its `VectorLayerInfo.source` when a host restores a saved project, but a `File`/`Blob` cannot: the browser exposes no path to re-read it. Two hooks let a host make local files restorable:
+
+- **Desktop hosts** can provide a `fileOpener` that opens a native dialog and returns each file with the absolute `sourcePath` it was read from. That path is echoed on `source.path`, so the host can persist it and re-read the file (`addData(file, { sourcePath })`) on reopen.
+
+  ```typescript
+  new VectorControl({
+    fileOpener: async () => {
+      const paths = await openNativeDialog(); // host-specific, returns string[]
+      return Promise.all(
+        paths.map(async (path) => ({ file: await readFileAsFile(path), sourcePath: path })),
+      );
+    },
+  });
+  ```
+
+- **Web hosts** (no filesystem path) can instead embed the data: call `getLayerGeoJSON(id)` at save time to materialize the features, store them in the project, and replay them with `addData(featureCollection, { renderMode })` on reopen.
+
 ### Self-hosting DuckDB-WASM
 
 By default the plugin loads DuckDB-WASM from `cdn.jsdelivr.net` on first use. If you serve the app with a Content-Security-Policy, that requires allowing `https://cdn.jsdelivr.net` in `script-src` (the engine is loaded via a dynamic `import()`); if the CDN is blocked or unreachable, loading fails with `Failed to fetch dynamically imported module`.
@@ -252,12 +271,14 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `sampleData` | `VectorSampleDataset[]` | - | Sample datasets shown as a "Load sample data" dropdown below the URL input; picking one fills the input and loads it (hidden when empty) |
 | `sampleDataLabel` | `string` | `'Load sample data...'` | Placeholder shown in the sample-data dropdown |
 | `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
+| `fileOpener` | `() => VectorFileSelection[] \| null \| Promise<...>` | - | Replace the panel's built-in file browse with a host picker. Each returned selection's `sourcePath` is echoed on the layer's `source` so a desktop host can persist and re-read local files (see [Restorable local files](#restorable-local-files)) |
 
 #### Data Methods
 
 - `addData(source, options?)` - Load a URL, `File`/`Blob`, or GeoJSON object; resolves with the layer's `VectorLayerInfo`
 - `removeLayer(id)` / `removeAll()` - Remove layers
 - `getLayers()` / `getLayer(id)` - Layer metadata
+- `getLayerGeoJSON(id)` - Materialize a layer's features as a GeoJSON `FeatureCollection` (from the cached collection, the DuckDB table, or the map source), so a host can persist a local-file layer's data; resolves `null` when the data is not held locally (e.g. a streamed GeoParquet)
 - `setLayerVisibility(id, visible)` - Show/hide a layer
 - `zoomToLayer(id)` - Fit the map to a layer's extent
 - `setLayerStyle(id, style)` - Update colors, opacity, line width, circle radius
@@ -283,6 +304,7 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `beforeId` | `string` | control option | Map layer id this layer is inserted before |
 | `picker` | `boolean` | control option | Attribute popup on feature click |
 | `ingestMode` | `'table' \| 'stream'` | control option | Stream GeoParquet in place instead of copying it into DuckDB |
+| `sourcePath` | `string` | - | Host-meaningful path a `File`/`Blob` was read from (e.g. an absolute path on a desktop host). Echoed unchanged on `VectorLayerInfo.source.path` so a host can persist it and re-read the file; ignored for URL and GeoJSON-object sources |
 
 #### Panel Methods
 

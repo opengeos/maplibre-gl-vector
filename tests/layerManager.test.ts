@@ -3,6 +3,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import {
   LayerManager,
+  describeSource,
   isLooseShapefileMissingSiblings,
   tableNameFor,
 } from '../src/lib/core/LayerManager';
@@ -35,15 +36,28 @@ const POLYGON_FC: FeatureCollection = {
   ],
 };
 
+const POINT_FC: FeatureCollection = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1, 2] },
+      properties: { name: 'dot' },
+    },
+  ],
+};
+
 function createMockMap() {
-  const sources = new Set<string>();
+  const sources = new Map<string, unknown>();
   const layers = new Set<string>();
   return {
     sources,
     layers,
-    addSource: vi.fn((id: string) => sources.add(id)),
+    addSource: vi.fn((id: string, spec?: unknown) => sources.set(id, spec)),
     removeSource: vi.fn((id: string) => sources.delete(id)),
-    getSource: vi.fn((id: string) => (sources.has(id) ? {} : undefined)),
+    getSource: vi.fn((id: string) =>
+      sources.has(id) ? { serialize: () => sources.get(id) } : undefined,
+    ),
     addLayer: vi.fn((spec: { id: string }) => layers.add(spec.id)),
     removeLayer: vi.fn((id: string) => layers.delete(id)),
     getLayer: vi.fn((id: string) => (layers.has(id) ? {} : undefined)),
@@ -92,6 +106,46 @@ function createManager(options = {}, engine: IEngine = createMockEngine()) {
 describe('tableNameFor', () => {
   it('sanitizes layer ids', () => {
     expect(tableNameFor('vector-abc123')).toBe('t_vector_abc123');
+  });
+});
+
+describe('describeSource', () => {
+  it('describes a URL source', () => {
+    expect(describeSource('https://example.com/a.geojson')).toEqual({
+      kind: 'url',
+      url: 'https://example.com/a.geojson',
+    });
+  });
+
+  it('describes a File source with its name', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file)).toEqual({ kind: 'file', fileName: 'cities.gpkg' });
+  });
+
+  it('echoes a sourcePath on a File source when provided', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file, '/data/cities.gpkg')).toEqual({
+      kind: 'file',
+      fileName: 'cities.gpkg',
+      path: '/data/cities.gpkg',
+    });
+  });
+
+  it('echoes a sourcePath on a bare Blob source', () => {
+    const blob = new Blob(['{}']);
+    expect(describeSource(blob, '/data/cities.gpkg')).toEqual({
+      kind: 'file',
+      path: '/data/cities.gpkg',
+    });
+  });
+
+  it('omits a blank sourcePath and ignores it for URL sources', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file, '   ')).toEqual({ kind: 'file', fileName: 'cities.gpkg' });
+    expect(describeSource('https://example.com/a.geojson', '/data/a.geojson')).toEqual({
+      kind: 'url',
+      url: 'https://example.com/a.geojson',
+    });
   });
 });
 
@@ -162,6 +216,40 @@ describe('LayerManager GeoJSON path', () => {
     });
 
     expect(engine.ingest).toHaveBeenCalled();
+  });
+});
+
+describe('getLayerGeoJSON', () => {
+  it('returns null for an unknown layer id', async () => {
+    const { manager } = createManager();
+    expect(await manager.getLayerGeoJSON('nope')).toBeNull();
+  });
+
+  it('returns the cached collection for a point geojson layer', async () => {
+    const { manager, engine } = createManager();
+    await manager.addData(POINT_FC, { id: 'dots', fitBounds: false });
+    expect(await manager.getLayerGeoJSON('dots')).toEqual(POINT_FC);
+    // Cached in memory, so no engine readback.
+    expect(engine.exportGeoJSON).not.toHaveBeenCalled();
+  });
+
+  it('reads a line/polygon geojson layer back from its map source', async () => {
+    const { manager, engine } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    // Polygon geojson keeps no cached copy; it comes from the map source.
+    expect(await manager.getLayerGeoJSON('poly')).toEqual(POLYGON_FC);
+    expect(engine.exportGeoJSON).not.toHaveBeenCalled();
+  });
+
+  it('exports an engine-backed (tiled) layer from its DuckDB table', async () => {
+    const { manager, engine } = createManager();
+    await manager.addData(new File(['gpkg'], 'cities.gpkg'), {
+      id: 'cities',
+      renderMode: 'tiles',
+      fitBounds: false,
+    });
+    expect(await manager.getLayerGeoJSON('cities')).toEqual(POLYGON_FC);
+    expect(engine.exportGeoJSON).toHaveBeenCalledWith('t_cities');
   });
 });
 

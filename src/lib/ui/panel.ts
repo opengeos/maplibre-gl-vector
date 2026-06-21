@@ -4,6 +4,8 @@ import type {
   VectorControlEvent,
   VectorControlEventHandler,
   VectorDataSource,
+  VectorFileOpener,
+  VectorFileSelection,
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
@@ -50,6 +52,13 @@ export interface PanelUIOptions {
   sampleData?: VectorSampleDataset[];
   /** Label shown before the sample links (defaults to 'Load sample data:') */
   sampleDataLabel?: string;
+  /**
+   * Host-supplied file picker. When set, clicking the drop zone calls this
+   * instead of the native file input, and each returned selection is loaded
+   * with its `sourcePath` recorded on the layer (see
+   * {@link VectorControlOptions.fileOpener}).
+   */
+  fileOpener?: VectorFileOpener;
 }
 
 /**
@@ -60,7 +69,7 @@ export interface PanelUIOptions {
  * @returns A dispose function that unsubscribes event handlers
  */
 export function renderPanelUI(options: PanelUIOptions): () => void {
-  const { container, control } = options;
+  const { container, control, fileOpener } = options;
   const expandedEditors = new Set<string>();
   let styleEditInProgress = false;
 
@@ -81,7 +90,16 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   fileInput.multiple = true;
   fileInput.style.display = 'none';
 
-  dropZone.addEventListener('click', () => fileInput.click());
+  // A host can replace the native browse with its own picker (e.g. a desktop
+  // dialog that yields real filesystem paths). Drag-and-drop still uses the
+  // browser's dropped files, which carry no path.
+  dropZone.addEventListener('click', () => {
+    if (fileOpener) {
+      void openViaHost();
+    } else {
+      fileInput.click();
+    }
+  });
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropZone.classList.add('dragover');
@@ -319,6 +337,58 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
           ? { ...loadOptions(), companionFiles: companions }
           : loadOptions();
       void control.addData(file, options).catch(() => {
+        // Error already surfaced through the 'error' event.
+      });
+    }
+  }
+
+  // Runs the host-supplied picker (when set) and loads its selections, carrying
+  // each file's sourcePath through to addData so a desktop host can persist and
+  // re-read it. Mirrors loadFiles' shapefile grouping; a returned empty list (or
+  // a cancelled picker) loads nothing.
+  async function openViaHost(): Promise<void> {
+    let selections: VectorFileSelection[] | null | undefined;
+    try {
+      selections = await fileOpener?.();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not open files', true);
+      return;
+    }
+    if (!selections || selections.length === 0) return;
+    loadSelections(selections);
+  }
+
+  function loadSelections(selections: VectorFileSelection[]): void {
+    // Only File instances can be regrouped by name for loose shapefiles; a raw
+    // Blob has no name, so it loads on its own.
+    const files = selections.map((selection) => selection.file);
+    const pathByFile = new Map<File | Blob, string | undefined>(
+      selections.map((selection) => [selection.file, selection.sourcePath]),
+    );
+    const nameByFile = new Map<File | Blob, string | undefined>(
+      selections.map((selection) => [selection.file, selection.name]),
+    );
+    const fileEntries = files.filter((file): file is File => file instanceof File);
+    const blobEntries = files.filter((file) => !(file instanceof File));
+
+    for (const { file, companions } of groupShapefileComponents(fileEntries)) {
+      const options: VectorLayerOptions = {
+        ...loadOptions(),
+        ...(companions.length > 0 ? { companionFiles: companions } : {}),
+        ...(pathByFile.get(file) ? { sourcePath: pathByFile.get(file) } : {}),
+        ...(nameByFile.get(file) ? { name: nameByFile.get(file) } : {}),
+      };
+      void control.addData(file, options).catch(() => {
+        // Error already surfaced through the 'error' event.
+      });
+    }
+    for (const blob of blobEntries) {
+      const options: VectorLayerOptions = {
+        ...loadOptions(),
+        ...(pathByFile.get(blob) ? { sourcePath: pathByFile.get(blob) } : {}),
+        ...(nameByFile.get(blob) ? { name: nameByFile.get(blob) } : {}),
+      };
+      void control.addData(blob, options).catch(() => {
         // Error already surfaced through the 'error' event.
       });
     }
