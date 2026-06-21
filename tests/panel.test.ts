@@ -91,3 +91,101 @@ describe('renderPanelUI URL input', () => {
     dispose();
   });
 });
+
+describe('renderPanelUI sample data', () => {
+  it('renders no sample row when no samples are given', () => {
+    const container = document.createElement('div');
+    const dispose = renderPanelUI({ container, control: createFakeHost() });
+
+    expect(container.querySelector('.vector-control-sample-row')).toBeNull();
+    dispose();
+  });
+
+  it('renders no sample row for an empty sample list', () => {
+    const container = document.createElement('div');
+    const dispose = renderPanelUI({ container, control: createFakeHost(), sampleData: [] });
+
+    expect(container.querySelector('.vector-control-sample-row')).toBeNull();
+    dispose();
+  });
+
+  it('renders a labelled link per sample and keeps the URL input empty', () => {
+    const container = document.createElement('div');
+    const dispose = renderPanelUI({
+      container,
+      control: createFakeHost(),
+      sampleData: [
+        { label: 'Countries', url: 'https://example.com/countries.parquet' },
+        { label: 'Cities', url: 'https://example.com/cities.geojson' },
+      ],
+    });
+
+    const row = container.querySelector('.vector-control-sample-row')!;
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.vector-control-sample-label')!.textContent).toBe(
+      'Load sample data:',
+    );
+    const links = row.querySelectorAll<HTMLButtonElement>('.vector-control-sample-link');
+    expect(Array.from(links).map((link) => link.textContent)).toEqual(['Countries', 'Cities']);
+    expect(links[0].title).toBe('https://example.com/countries.parquet');
+
+    const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
+    expect(input.value).toBe('');
+    dispose();
+  });
+
+  it('uses a custom sample label when provided', () => {
+    const container = document.createElement('div');
+    const dispose = renderPanelUI({
+      container,
+      control: createFakeHost(),
+      sampleDataLabel: 'Try a sample:',
+      sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
+    });
+
+    expect(container.querySelector('.vector-control-sample-label')!.textContent).toBe(
+      'Try a sample:',
+    );
+    dispose();
+  });
+
+  it('loads the sample URL on click, honouring the streaming toggle by default', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
+    });
+
+    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/countries.parquet',
+      { ingestMode: 'table' },
+    );
+    dispose();
+  });
+
+  it('honours a per-sample ingestMode over the streaming toggle', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [
+        { label: 'Countries', url: 'https://example.com/countries.parquet', ingestMode: 'stream' },
+      ],
+    });
+
+    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/countries.parquet',
+      { ingestMode: 'stream' },
+    );
+    dispose();
+  });
+});

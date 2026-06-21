@@ -7,6 +7,7 @@ import type {
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
+  VectorSampleDataset,
 } from '../core/types';
 import { el, svgIcon, ICONS } from './dom';
 import { createLayerListItem } from './layerListItem';
@@ -44,6 +45,10 @@ export interface PanelUIOptions {
   defaultUrl?: string;
   /** Load defaultUrl immediately, as if the user had pressed Load */
   autoLoad?: boolean;
+  /** One-click sample datasets shown below the URL input (row hidden when empty) */
+  sampleData?: VectorSampleDataset[];
+  /** Label shown before the sample links (defaults to 'Load sample data:') */
+  sampleDataLabel?: string;
 }
 
 /**
@@ -118,6 +123,34 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   });
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
+
+  // --- Sample data links ---------------------------------------------------
+  // Optional one-click examples, decoupled from the URL input so the input
+  // stays empty for the user's own links. Hidden entirely when no host
+  // supplies samples.
+  const samples = options.sampleData ?? [];
+  const sampleRow = el('div', 'vector-control-sample-row');
+  if (samples.length > 0) {
+    const sampleLabel = el('span', 'vector-control-sample-label');
+    sampleLabel.textContent = options.sampleDataLabel ?? 'Load sample data:';
+    sampleRow.appendChild(sampleLabel);
+    for (const sample of samples) {
+      const link = el('button', 'vector-control-sample-link', { type: 'button' });
+      link.textContent = sample.label;
+      link.title = sample.url;
+      link.addEventListener('click', () => {
+        // A per-sample ingestMode wins; otherwise fall through to the
+        // streaming toggle so the sample behaves like a manual load.
+        const sampleOptions: VectorLayerOptions = sample.ingestMode
+          ? { ingestMode: sample.ingestMode }
+          : loadOptions();
+        void control.addData(sample.url, sampleOptions).catch(() => {
+          // Error already surfaced through the 'error' event.
+        });
+      });
+      sampleRow.appendChild(link);
+    }
+  }
 
   // --- Streaming toggle ----------------------------------------------------
   // Applies to subsequent loads; GeoParquet only (others fall back to
@@ -238,6 +271,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(dropZone);
   container.appendChild(fileInput);
   container.appendChild(urlRow);
+  if (samples.length > 0) container.appendChild(sampleRow);
   container.appendChild(streamRow);
   container.appendChild(status);
   container.appendChild(el('div', 'vector-control-divider'));
