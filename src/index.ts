@@ -17,6 +17,8 @@ export type {
   VectorControlOptions,
   VectorDataSource,
   VectorEventPayload,
+  VectorFileOpener,
+  VectorFileSelection,
   VectorFormat,
   VectorLayerInfo,
   VectorLayerOptions,

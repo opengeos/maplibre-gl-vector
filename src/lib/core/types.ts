@@ -63,6 +63,44 @@ export type PointMode = 'circle' | 'heatmap' | 'cluster';
 export type VectorDataSource = string | File | Blob | GeoJSON;
 
 /**
+ * One file returned by a {@link VectorFileOpener}. Pairs the loaded
+ * `File`/`Blob` with an optional host-meaningful `sourcePath` (e.g. an
+ * absolute filesystem path on a desktop host) that the control records
+ * on the resulting layer's {@link VectorSourceDescriptor} so the host
+ * can persist it and re-read the file when a saved project is reopened.
+ */
+export interface VectorFileSelection {
+  /** The file contents to load. */
+  file: File | Blob;
+  /** Display name when the blob has none (defaults to the file name). */
+  name?: string;
+  /**
+   * Host-meaningful path the file was read from. Opaque to the control:
+   * it is echoed back unchanged on `VectorLayerInfo.source.path` so the
+   * host can re-open the file later. Typically an absolute filesystem
+   * path on a desktop host.
+   */
+  sourcePath?: string;
+}
+
+/**
+ * Supplies the files loaded when the user clicks the panel's drop zone.
+ *
+ * A host sets this through {@link VectorControlOptions.fileOpener} to
+ * replace the panel's built-in `<input type="file">` browse with its own
+ * picker. On a desktop host (e.g. Tauri) this lets the host open a native
+ * dialog that yields real filesystem paths, which it returns as
+ * {@link VectorFileSelection.sourcePath} so layers loaded from local files
+ * become restorable. Returning `null`, `undefined`, or an empty array
+ * (e.g. the user cancelled) loads nothing.
+ */
+export type VectorFileOpener = () =>
+  | VectorFileSelection[]
+  | null
+  | undefined
+  | Promise<VectorFileSelection[] | null | undefined>;
+
+/**
  * Thresholds that trip `'auto'` render mode from GeoJSON to dynamic tiles.
  */
 export interface AutoThreshold {
@@ -272,6 +310,19 @@ export interface VectorControlOptions {
    * Defaults to a remote `INSTALL spatial; LOAD spatial;` when unset.
    */
   spatialExtensionPath?: string;
+
+  /**
+   * Replaces the panel's built-in file browse with a host-supplied picker.
+   *
+   * When set, clicking the panel's drop zone calls this instead of opening
+   * the native `<input type="file">` dialog, and each returned
+   * {@link VectorFileSelection} is loaded through {@link VectorControl.addData}
+   * with its `sourcePath` recorded on the layer's source descriptor. Use it on
+   * a desktop host to open a native dialog that yields real filesystem paths,
+   * so local-file layers can be persisted and re-read when a project reopens.
+   * Drag-and-drop onto the zone still uses the browser's dropped files.
+   */
+  fileOpener?: VectorFileOpener;
 }
 
 /**
@@ -411,6 +462,15 @@ export interface VectorLayerOptions {
    * and `.dbf` the `.shp` cannot be read. Ignored for non-shapefile sources.
    */
   companionFiles?: File[];
+
+  /**
+   * Host-meaningful path a File/Blob source was read from (e.g. an absolute
+   * filesystem path on a desktop host). Opaque to the control: it is echoed
+   * back unchanged on `VectorLayerInfo.source.path` so a host can persist it
+   * and re-read the file when a saved project is reopened. Ignored for URL and
+   * GeoJSON-object sources, which are already restorable from their descriptor.
+   */
+  sourcePath?: string;
 }
 
 /**
@@ -432,6 +492,13 @@ export type VectorSourceDescriptor =
       kind: 'file';
       /** The local file name (when known) */
       fileName?: string;
+      /**
+       * Host-meaningful path the file was read from, echoed from
+       * {@link VectorLayerOptions.sourcePath}. Present only when the host
+       * supplied one (e.g. a desktop file picker); lets the host re-read the
+       * file to recreate the layer when a saved project is reopened.
+       */
+      path?: string;
     }
   | {
       /** The data was passed as a GeoJSON object */

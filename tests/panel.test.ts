@@ -324,3 +324,86 @@ describe('renderPanelUI file input', () => {
     dispose();
   });
 });
+
+describe('renderPanelUI fileOpener', () => {
+  function clickDropZone(container: HTMLElement): void {
+    container.querySelector<HTMLElement>('.vector-control-dropzone')!.click();
+  }
+
+  it('loads host selections through addData, carrying sourcePath and name', async () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const file = new File(['{}'], 'countries.gpkg');
+    const fileOpener = vi.fn(async () => [
+      { file, sourcePath: '/home/user/countries.gpkg', name: 'Countries' },
+    ]);
+    const dispose = renderPanelUI({ container, control: host, fileOpener });
+
+    clickDropZone(container);
+    await vi.waitFor(() => expect(host.addData).toHaveBeenCalledTimes(1));
+
+    expect(fileOpener).toHaveBeenCalledOnce();
+    const [source, options] = (host.addData as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(source).toBe(file);
+    expect(options.sourcePath).toBe('/home/user/countries.gpkg');
+    expect(options.name).toBe('Countries');
+
+    dispose();
+  });
+
+  it('replaces the native file input click when a fileOpener is set', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    const fileOpener = vi.fn(() => null);
+    const dispose = renderPanelUI({ container, control: host, fileOpener });
+
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')!;
+    const inputClick = vi.spyOn(input, 'click');
+    clickDropZone(container);
+
+    expect(fileOpener).toHaveBeenCalledOnce();
+    expect(inputClick).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it('loads nothing when the picker returns an empty list or is cancelled', async () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const fileOpener = vi.fn(async () => [] as never[]);
+    const dispose = renderPanelUI({ container, control: host, fileOpener });
+
+    clickDropZone(container);
+    await vi.waitFor(() => expect(fileOpener).toHaveBeenCalledOnce());
+    expect(host.addData).not.toHaveBeenCalled();
+
+    dispose();
+  });
+
+  it('groups a host-picked loose shapefile with its sidecars', async () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const shp = new File(['shp'], 'cities.shp');
+    const shx = new File(['shx'], 'cities.shx');
+    const dbf = new File(['dbf'], 'cities.dbf');
+    const fileOpener = vi.fn(async () => [
+      { file: shp, sourcePath: '/data/cities.shp' },
+      { file: shx },
+      { file: dbf },
+    ]);
+    const dispose = renderPanelUI({ container, control: host, fileOpener });
+
+    clickDropZone(container);
+    await vi.waitFor(() => expect(host.addData).toHaveBeenCalledTimes(1));
+
+    const [source, options] = (host.addData as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(source).toBe(shp);
+    expect(options.companionFiles).toEqual([shx, dbf]);
+    expect(options.sourcePath).toBe('/data/cities.shp');
+
+    dispose();
+  });
+});

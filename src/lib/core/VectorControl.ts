@@ -1,3 +1,4 @@
+import type { FeatureCollection } from 'geojson';
 import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import type {
   RenderMode,
@@ -124,6 +125,7 @@ export class VectorControl implements IControl {
         autoLoad: this._options.autoLoad,
         sampleData: this._options.sampleData,
         sampleDataLabel: this._options.sampleDataLabel,
+        fileOpener: this._options.fileOpener,
       });
     }
 
@@ -237,6 +239,19 @@ export class VectorControl implements IControl {
    */
   getLayer(id: string): VectorLayerInfo | undefined {
     return this._layerManager?.getLayer(id);
+  }
+
+  /**
+   * Materializes a layer's features as a GeoJSON FeatureCollection, so a host
+   * can persist the data of a layer loaded from a local file (which a saved
+   * project cannot otherwise recreate). Returns null for an unknown id, or a
+   * layer whose data is not held locally (e.g. a streamed GeoParquet).
+   *
+   * @param id - The layer id.
+   * @returns The features as a FeatureCollection, or null when unavailable.
+   */
+  getLayerGeoJSON(id: string): Promise<FeatureCollection | null> {
+    return this._layerManager?.getLayerGeoJSON(id) ?? Promise.resolve(null);
   }
 
   /**

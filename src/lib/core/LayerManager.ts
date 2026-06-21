@@ -103,17 +103,24 @@ export function tableNameFor(layerId: string): string {
  * recreated from the descriptor).
  *
  * @param source - The data source passed to addData
+ * @param sourcePath - Host-meaningful path a File/Blob was read from, echoed
+ *   on the descriptor so the host can re-read it on project restore. Ignored
+ *   for URL and GeoJSON-object sources.
  * @returns The public source descriptor
  */
-export function describeSource(source: VectorDataSource): VectorSourceDescriptor {
+export function describeSource(
+  source: VectorDataSource,
+  sourcePath?: string,
+): VectorSourceDescriptor {
   if (typeof source === 'string') {
     return { kind: 'url', url: source };
   }
+  const path = sourcePath?.trim() ? sourcePath : undefined;
   if (typeof File !== 'undefined' && source instanceof File) {
-    return { kind: 'file', fileName: source.name };
+    return { kind: 'file', fileName: source.name, ...(path ? { path } : {}) };
   }
   if (typeof Blob !== 'undefined' && source instanceof Blob) {
-    return { kind: 'file' };
+    return { kind: 'file', ...(path ? { path } : {}) };
   }
   return { kind: 'geojson' };
 }
@@ -190,6 +197,37 @@ export class LayerManager {
   getLayer(id: string): VectorLayerInfo | undefined {
     const record = this._records.get(id);
     return record ? { ...record.info } : undefined;
+  }
+
+  /**
+   * Materializes a layer's features as a GeoJSON FeatureCollection, so a host
+   * can persist the data of a layer loaded from a local file (which a saved
+   * project cannot otherwise recreate). The data comes from the cached
+   * collection (point geojson layers), the DuckDB table (engine/tiles layers),
+   * or the layer's map source (line/polygon geojson layers). Returns null for
+   * an unknown id, or a layer whose data is not held locally (e.g. a GeoParquet
+   * streamed in place, which is queried from its source per tile).
+   *
+   * @param id - The layer id.
+   * @returns The features as a FeatureCollection, or null when unavailable.
+   */
+  async getLayerGeoJSON(id: string): Promise<FeatureCollection | null> {
+    const record = this._records.get(id);
+    if (!record) return null;
+    if (record.geojson) return record.geojson;
+    if (record.tableName) {
+      const engine = await this._getEngine();
+      return engine.exportGeoJSON(record.tableName);
+    }
+    // A line/polygon geojson layer keeps no cached copy (to avoid pinning the
+    // heap), but its data lives in the map source it was added with.
+    const source = this._map.getSource(record.info.sourceId);
+    const serialized = source?.serialize() as { data?: unknown } | undefined;
+    const data = serialized?.data;
+    if (data && typeof data === 'object' && (data as FeatureCollection).type) {
+      return data as FeatureCollection;
+    }
+    return null;
   }
 
   /**
@@ -271,7 +309,7 @@ export class LayerManager {
       info: {
         id,
         name,
-        source: describeSource(source),
+        source: describeSource(source, options.sourcePath),
         format: detected.format,
         renderMode: 'geojson',
         geometryType: 'unknown',
