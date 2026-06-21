@@ -626,9 +626,11 @@ export class VectorControl implements IControl {
     const startRight = rect.right;
     const startTop = rect.top;
 
-    const MIN_WIDTH = 240;
-    const MIN_HEIGHT = 160;
     const EDGE_MARGIN = 10;
+    // Clamp the preferred minimums to what the map can actually hold, so a
+    // small map container never forces the panel past its edges.
+    const minWidth = Math.min(240, Math.max(120, mapRect.width - 2 * EDGE_MARGIN));
+    const minHeight = Math.min(160, Math.max(120, mapRect.height - 2 * EDGE_MARGIN));
 
     // Pin the panel to its current rect so the size grows from the dragged
     // corner regardless of the original anchor, and drop the CSS max-size
@@ -644,17 +646,17 @@ export class VectorControl implements IControl {
       const dx = moveEvent.clientX - startX;
       const dy = moveEvent.clientY - startY;
 
-      const maxHeight = mapRect.bottom - startTop - EDGE_MARGIN;
-      const nextHeight = Math.max(MIN_HEIGHT, Math.min(startHeight + dy, maxHeight));
+      const maxHeight = Math.max(minHeight, mapRect.bottom - startTop - EDGE_MARGIN);
+      const nextHeight = Math.max(minHeight, Math.min(startHeight + dy, maxHeight));
 
       let nextWidth: number;
       let nextLeft = startLeft;
       if (side === 'right') {
-        const maxWidth = mapRect.right - rect.left - EDGE_MARGIN;
-        nextWidth = Math.max(MIN_WIDTH, Math.min(startWidth + dx, maxWidth));
+        const maxWidth = Math.max(minWidth, mapRect.right - rect.left - EDGE_MARGIN);
+        nextWidth = Math.max(minWidth, Math.min(startWidth + dx, maxWidth));
       } else {
-        const maxWidth = startRight - mapRect.left - EDGE_MARGIN;
-        nextWidth = Math.max(MIN_WIDTH, Math.min(startWidth - dx, maxWidth));
+        const maxWidth = Math.max(minWidth, startRight - mapRect.left - EDGE_MARGIN);
+        nextWidth = Math.max(minWidth, Math.min(startWidth - dx, maxWidth));
         // Hold the right edge fixed while the left edge follows the drag.
         nextLeft = startLeft + (startWidth - nextWidth);
       }
@@ -810,11 +812,12 @@ export class VectorControl implements IControl {
 
     // Reapply a resize the user made, clamped to the current map size, so
     // repositioning keeps their chosen dimensions instead of snapping back.
+    // The lower bound guards a tiny map where `available` can go negative.
     if (this._userWidth !== null) {
-      this._panel.style.width = `${Math.min(this._userWidth, availableWidth)}px`;
+      this._panel.style.width = `${Math.max(120, Math.min(this._userWidth, availableWidth))}px`;
     }
     if (this._userHeight !== null) {
-      this._panel.style.height = `${Math.min(this._userHeight, available)}px`;
+      this._panel.style.height = `${Math.max(120, Math.min(this._userHeight, available))}px`;
     }
   }
 }
