@@ -92,11 +92,17 @@ export interface VectorSampleDataset {
   /** Source URL loaded when the link is clicked */
   url: string;
 
+  /** Display name for the loaded layer (defaults to the file name) */
+  name?: string;
+
   /**
    * Ingest mode for this sample. When omitted, the panel's streaming
    * toggle decides, matching a manual URL load.
    */
   ingestMode?: IngestMode;
+
+  /** Render mode for this sample (defaults to the control's setting) */
+  renderMode?: RenderMode;
 }
 
 /**

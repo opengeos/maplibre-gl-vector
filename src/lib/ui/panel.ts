@@ -144,6 +144,8 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
         const sampleOptions: VectorLayerOptions = sample.ingestMode
           ? { ingestMode: sample.ingestMode }
           : loadOptions();
+        if (sample.name) sampleOptions.name = sample.name;
+        if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
         void control.addData(sample.url, sampleOptions).catch(() => {
           // Error already surfaced through the 'error' event.
         });

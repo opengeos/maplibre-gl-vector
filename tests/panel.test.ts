@@ -168,6 +168,33 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 
+  it('passes a per-sample name and render mode through to addData', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [
+        {
+          label: 'Counties',
+          url: 'https://example.com/counties.parquet',
+          name: 'US counties',
+          renderMode: 'tiles',
+        },
+      ],
+    });
+
+    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith('https://example.com/counties.parquet', {
+      ingestMode: 'table',
+      name: 'US counties',
+      renderMode: 'tiles',
+    });
+    dispose();
+  });
+
   it('honours a per-sample ingestMode over the streaming toggle', () => {
     const container = document.createElement('div');
     const host = createFakeHost();

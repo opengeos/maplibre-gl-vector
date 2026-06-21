@@ -32,9 +32,24 @@ map.on('load', () => {
     title: 'Vector Data',
     collapsed: false,
     panelWidth: 320,
+    // Let the panel be dragged larger from its bottom corners.
+    resizable: true,
+    // Sample datasets are offered as one-click links inside the panel
+    // (below the URL input), so the input stays empty for custom links.
+    sampleData: [
+      { label: 'GeoParquet', url: SAMPLES.geoparquet, name: 'Countries' },
+      { label: 'GeoPackage', url: SAMPLES.geopackage, name: 'US regions' },
+      { label: 'CSV', url: SAMPLES.csv, name: 'World cities' },
+      {
+        label: 'Tiles mode',
+        url: SAMPLES.counties,
+        name: 'US counties (tiles)',
+        renderMode: 'tiles',
+      },
+    ],
   });
 
-  map.addControl(vectorControl, 'top-right');
+  map.addControl(vectorControl, 'top-left');
 
   // Listen for layer events
   vectorControl.on('layeradded', (event) => {
@@ -53,28 +68,4 @@ map.on('load', () => {
   void vectorControl
     .addData(SAMPLES.geojson, { name: 'Tahoe sample' })
     .catch((err) => console.error(err));
-
-  // Wire the sample buttons
-  const buttons: Array<[string, () => Promise<unknown>]> = [
-    ['load-geoparquet', () => vectorControl.addData(SAMPLES.geoparquet, { name: 'Countries' })],
-    ['load-geopackage', () => vectorControl.addData(SAMPLES.geopackage, { name: 'US regions' })],
-    ['load-csv', () => vectorControl.addData(SAMPLES.csv, { name: 'World cities' })],
-    [
-      'load-tiles',
-      () =>
-        vectorControl.addData(SAMPLES.counties, {
-          name: 'US counties (tiles)',
-          renderMode: 'tiles',
-        }),
-    ],
-  ];
-  for (const [id, load] of buttons) {
-    const button = document.getElementById(id);
-    button?.addEventListener('click', () => {
-      button.setAttribute('disabled', 'true');
-      void load()
-        .catch((err) => console.error(err))
-        .finally(() => button.removeAttribute('disabled'));
-    });
-  }
 });
