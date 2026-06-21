@@ -93,6 +93,13 @@ describe('renderPanelUI URL input', () => {
 });
 
 describe('renderPanelUI sample data', () => {
+  /** Pick the sample at `index` from the dropdown, firing the change handler. */
+  function pickSample(container: HTMLElement, index: number): void {
+    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
+    select.value = String(index);
+    select.dispatchEvent(new Event('change'));
+  }
+
   it('renders no sample row when no samples are given', () => {
     const container = document.createElement('div');
     const dispose = renderPanelUI({ container, control: createFakeHost() });
@@ -109,7 +116,7 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 
-  it('renders a labelled link per sample and keeps the URL input empty', () => {
+  it('renders a placeholder plus one option per sample and keeps the URL input empty', () => {
     const container = document.createElement('div');
     const dispose = renderPanelUI({
       container,
@@ -120,36 +127,37 @@ describe('renderPanelUI sample data', () => {
       ],
     });
 
-    const row = container.querySelector('.vector-control-sample-row')!;
-    expect(row).not.toBeNull();
-    expect(row.querySelector('.vector-control-sample-label')!.textContent).toBe(
-      'Load sample data:',
-    );
-    const links = row.querySelectorAll<HTMLButtonElement>('.vector-control-sample-link');
-    expect(Array.from(links).map((link) => link.textContent)).toEqual(['Countries', 'Cities']);
-    expect(links[0].title).toBe('https://example.com/countries.parquet');
+    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
+    expect(select).not.toBeNull();
+    const options = Array.from(select.options);
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Load sample data...',
+      'Countries',
+      'Cities',
+    ]);
+    expect(options[0].disabled).toBe(true);
+    expect(select.value).toBe('');
 
     const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
     expect(input.value).toBe('');
     dispose();
   });
 
-  it('uses a custom sample label when provided', () => {
+  it('uses a custom placeholder when provided', () => {
     const container = document.createElement('div');
     const dispose = renderPanelUI({
       container,
       control: createFakeHost(),
-      sampleDataLabel: 'Try a sample:',
+      sampleDataLabel: 'Try a sample...',
       sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
     });
 
-    expect(container.querySelector('.vector-control-sample-label')!.textContent).toBe(
-      'Try a sample:',
-    );
+    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
+    expect(select.options[0].textContent).toBe('Try a sample...');
     dispose();
   });
 
-  it('loads the sample URL on click, honouring the streaming toggle by default', () => {
+  it('fills the URL input and loads on select, honouring the streaming toggle by default', () => {
     const container = document.createElement('div');
     const host = createFakeHost();
     host.addData = vi.fn(async () => ({}) as never);
@@ -159,12 +167,31 @@ describe('renderPanelUI sample data', () => {
       sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
     });
 
-    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+    pickSample(container, 0);
 
+    const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
+    expect(input.value).toBe('https://example.com/countries.parquet');
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',
       { ingestMode: 'table' },
     );
+    dispose();
+  });
+
+  it('resets the dropdown to the placeholder after a selection', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
+    });
+
+    pickSample(container, 0);
+
+    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
+    expect(select.value).toBe('');
     dispose();
   });
 
@@ -185,7 +212,7 @@ describe('renderPanelUI sample data', () => {
       ],
     });
 
-    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+    pickSample(container, 0);
 
     expect(host.addData).toHaveBeenCalledExactlyOnceWith('https://example.com/counties.parquet', {
       ingestMode: 'table',
@@ -207,7 +234,7 @@ describe('renderPanelUI sample data', () => {
       ],
     });
 
-    container.querySelector<HTMLButtonElement>('.vector-control-sample-link')!.click();
+    pickSample(container, 0);
 
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',

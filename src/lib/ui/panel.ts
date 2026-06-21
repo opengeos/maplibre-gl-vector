@@ -124,34 +124,52 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
 
-  // --- Sample data links ---------------------------------------------------
-  // Optional one-click examples, decoupled from the URL input so the input
-  // stays empty for the user's own links. Hidden entirely when no host
-  // supplies samples.
+  // --- Sample data dropdown ------------------------------------------------
+  // Optional examples as a dropdown, decoupled from the URL input so the
+  // input stays empty for the user's own links. Picking one fills the URL
+  // input and loads it. Hidden entirely when no host supplies samples.
   const samples = options.sampleData ?? [];
   const sampleRow = el('div', 'vector-control-sample-row');
   if (samples.length > 0) {
-    const sampleLabel = el('span', 'vector-control-sample-label');
-    sampleLabel.textContent = options.sampleDataLabel ?? 'Load sample data:';
-    sampleRow.appendChild(sampleLabel);
-    for (const sample of samples) {
-      const link = el('button', 'vector-control-sample-link', { type: 'button' });
-      link.textContent = sample.label;
-      link.title = sample.url;
-      link.addEventListener('click', () => {
-        // A per-sample ingestMode wins; otherwise fall through to the
-        // streaming toggle so the sample behaves like a manual load.
-        const sampleOptions: VectorLayerOptions = sample.ingestMode
-          ? { ingestMode: sample.ingestMode }
-          : loadOptions();
-        if (sample.name) sampleOptions.name = sample.name;
-        if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
-        void control.addData(sample.url, sampleOptions).catch(() => {
-          // Error already surfaced through the 'error' event.
-        });
+    const sampleSelect = el('select', 'vector-control-sample-select') as HTMLSelectElement;
+
+    // A disabled placeholder doubles as the label and the reset state.
+    const placeholder = el('option') as HTMLOptionElement;
+    placeholder.value = '';
+    placeholder.textContent = options.sampleDataLabel ?? 'Load sample data...';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    sampleSelect.appendChild(placeholder);
+
+    samples.forEach((sample, index) => {
+      const option = el('option') as HTMLOptionElement;
+      option.value = String(index);
+      option.textContent = sample.label;
+      option.title = sample.url;
+      sampleSelect.appendChild(option);
+    });
+
+    sampleSelect.addEventListener('change', () => {
+      const sample = samples[Number(sampleSelect.value)];
+      // Snap back to the placeholder so the same sample can be re-picked
+      // and the control reads as an action menu, not a sticky selection.
+      sampleSelect.selectedIndex = 0;
+      if (!sample) return;
+      // Show the user which URL is loading, then load it.
+      urlInput.value = sample.url;
+      // A per-sample ingestMode wins; otherwise fall through to the
+      // streaming toggle so the sample behaves like a manual load.
+      const sampleOptions: VectorLayerOptions = sample.ingestMode
+        ? { ingestMode: sample.ingestMode }
+        : loadOptions();
+      if (sample.name) sampleOptions.name = sample.name;
+      if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
+      void control.addData(sample.url, sampleOptions).catch(() => {
+        // Error already surfaced through the 'error' event.
       });
-      sampleRow.appendChild(link);
-    }
+    });
+
+    sampleRow.appendChild(sampleSelect);
   }
 
   // --- Streaming toggle ----------------------------------------------------
@@ -177,11 +195,13 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     if (!message) {
       status.style.display = 'none';
       status.textContent = '';
+      syncScrollbarPadding();
       return;
     }
     status.style.display = 'block';
     status.textContent = message;
     status.classList.toggle('error', isError);
+    syncScrollbarPadding();
   }
 
   // --- Layer list ------------------------------------------------------------
@@ -196,6 +216,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     list.innerHTML = '';
     if (layers.length === 0) {
       list.appendChild(empty);
+      syncScrollbarPadding();
       return;
     }
     // Map layers this control did not create, as insert-before targets
@@ -239,6 +260,18 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
         }),
       );
     }
+    syncScrollbarPadding();
+  }
+
+  // The panel's scrollbar is an overlay in some engines, so it paints over
+  // the right edge of the inputs/buttons when the content overflows.
+  // Reserve room for it only while overflowing, keeping the left and right
+  // margins symmetric when there is no scrollbar.
+  function syncScrollbarPadding(): void {
+    container.classList.toggle(
+      'vector-control-has-scrollbar',
+      container.scrollHeight > container.clientHeight,
+    );
   }
 
   function loadOptions(): VectorLayerOptions {
@@ -282,6 +315,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
 
   renderList();
 
+  // Resizing the panel changes the content's own height (so the overflow
+  // state can flip) without firing a layer event; a ResizeObserver keeps
+  // the scrollbar padding in sync with those size changes.
+  const scrollObserver =
+    typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => syncScrollbarPadding())
+      : null;
+  scrollObserver?.observe(container);
+
   // Kick off the initial load through the same path as the Load button,
   // so progress/errors surface in the status line and the input clears
   // on success.
@@ -293,6 +335,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     control.off('layeradded', onLayerChange);
     control.off('layerremoved', onLayerChange);
     control.off('layerupdated', onLayerChange);
+    scrollObserver?.disconnect();
     container.innerHTML = '';
   };
 }

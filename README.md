@@ -248,8 +248,8 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `defaultUrl` | `string` | - | Initial value of the panel's URL input (a ready-to-load sample dataset) |
 | `autoLoad` | `boolean` | `false` | Load `defaultUrl` automatically when the control is added to the map |
 | `resizable` | `boolean` | `false` | Show bottom-left and bottom-right drag handles so the panel can be resized |
-| `sampleData` | `VectorSampleDataset[]` | - | One-click "Load sample data" links shown below the URL input (row hidden when empty) |
-| `sampleDataLabel` | `string` | `'Load sample data:'` | Label shown before the sample links |
+| `sampleData` | `VectorSampleDataset[]` | - | Sample datasets shown as a "Load sample data" dropdown below the URL input; picking one fills the input and loads it (hidden when empty) |
+| `sampleDataLabel` | `string` | `'Load sample data...'` | Placeholder shown in the sample-data dropdown |
 | `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
 
 #### Data Methods

@@ -219,9 +219,10 @@ export interface VectorControlOptions {
   sampleData?: VectorSampleDataset[];
 
   /**
-   * Label shown before the sample links (e.g. 'Load sample data:').
-   * Ignored when {@link sampleData} is empty.
-   * @default 'Load sample data:'
+   * Placeholder shown in the sample-data dropdown before a selection
+   * (e.g. 'Load sample data...'). Ignored when {@link sampleData} is
+   * empty.
+   * @default 'Load sample data...'
    */
   sampleDataLabel?: string;
 

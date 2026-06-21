@@ -225,6 +225,13 @@
   overflow-y: auto;
 }
 
+/* Only while the content overflows: clear room for the (overlay) scrollbar
+   so it does not paint over the inputs/buttons. Toggled from JS so the
+   right margin matches the left whenever there is no scrollbar. */
+.vector-control-content.vector-control-has-scrollbar {
+  padding-right: 8px;
+}
+
 /* Scrollbar styling */
 .vector-control-content::-webkit-scrollbar {
   width: 6px;
@@ -382,41 +389,38 @@
   font-size: 12px;
 }
 
-/* Sample data links */
+/* Sample data dropdown */
 .vector-control-sample-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 8px;
   margin-bottom: 8px;
-  font-size: 11px;
-  color: var(--vc-text-soft);
 }
 
-.vector-control-sample-label {
-  color: var(--vc-muted);
-}
-
-.vector-control-sample-link {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--vc-accent);
-  font-size: 11px;
+.vector-control-sample-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
   font-family: inherit;
+  color: var(--vc-text);
+  background: var(--vc-input-bg);
+  border: 1px solid var(--vc-input-border);
+  border-radius: 4px;
   cursor: pointer;
-  text-decoration: none;
+  box-sizing: border-box;
 }
 
-.vector-control-sample-link:hover {
-  color: var(--vc-accent-hover);
-  text-decoration: underline;
+.vector-control-sample-select:focus {
+  outline: none;
+  border-color: var(--vc-accent);
 }
 
-.vector-control-sample-link:focus-visible {
-  outline: 2px solid var(--vc-accent);
-  outline-offset: 2px;
-  border-radius: 2px;
+/* Theme the native option list so the dropdown keeps good contrast in
+   dark mode (browsers otherwise fall back to a light system menu). */
+.vector-control-sample-select option {
+  background: var(--vc-bg);
+  color: var(--vc-text);
+}
+
+.vector-control-sample-select option:disabled {
+  color: var(--vc-muted);
 }
 
 /* Streaming toggle */
