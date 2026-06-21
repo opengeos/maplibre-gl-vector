@@ -119,6 +119,34 @@ export function describeSource(source: VectorDataSource): VectorSourceDescriptor
 }
 
 /**
+ * Detects a loose `.shp` file that cannot be read because its required
+ * `.shx`/`.dbf` siblings were not provided.
+ *
+ * A shapefile is a set of files. A lone `.shp` (or one missing the index or
+ * attribute sidecar) makes GDAL fail with an opaque "GDALOpen() called on
+ * x.shp recursively" error; callers use this to surface an actionable message
+ * instead. A zipped shapefile (`.zip`) carries its components, so it is never
+ * flagged.
+ *
+ * @param source - The data source passed to addData.
+ * @param options - The layer options, whose `companionFiles` hold the sidecars.
+ * @returns True when the source is a `.shp` lacking its `.shx` or `.dbf`.
+ */
+export function isLooseShapefileMissingSiblings(
+  source: VectorDataSource,
+  options: VectorLayerOptions,
+): boolean {
+  if (typeof File === 'undefined' || !(source instanceof File)) return false;
+  if (!/\.shp$/i.test(source.name)) return false;
+  const extensions = new Set(
+    (options.companionFiles ?? []).map((file) =>
+      file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase(),
+    ),
+  );
+  return !extensions.has('shx') || !extensions.has('dbf');
+}
+
+/**
  * Owns the vector layers of a control: loading data, creating map
  * sources/layers, visibility, styling, render-mode switching, and
  * cleanup. Communicates with DuckDB only through the injected engine
@@ -179,6 +207,21 @@ export class LayerManager {
     const id = options.id ?? generateId('vector');
     if (this._records.has(id)) {
       throw new Error(`Layer "${id}" already exists`);
+    }
+
+    // A shapefile is several files. A lone `.shp` (or one missing its `.shx`/
+    // `.dbf` siblings) cannot be read, and GDAL fails with an opaque
+    // "GDALOpen() called on x.shp recursively" error. Surface an actionable
+    // message instead, before any engine work, telling the user to select the
+    // companion files too (or load the shapefile as a single `.zip`).
+    if (detected.format === 'shapefile' && isLooseShapefileMissingSiblings(source, options)) {
+      const error = new Error(
+        'A shapefile is a set of files. Select the .shp together with its ' +
+          '.shx and .dbf files (and .prj, .cpg if present), or load the ' +
+          'shapefile as a single .zip archive.',
+      );
+      this._emit('error', { error });
+      throw error;
     }
 
     // Extensionless remote URLs (OGC API Features / ArcGIS `f=geojson`, custom

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
-import { LayerManager, tableNameFor } from '../src/lib/core/LayerManager';
+import {
+  LayerManager,
+  isLooseShapefileMissingSiblings,
+  tableNameFor,
+} from '../src/lib/core/LayerManager';
 import type { IEngine } from '../src/lib/engine/types';
 import { hasTileProvider, loadTile } from '../src/lib/tiles/protocol';
 
@@ -130,6 +134,67 @@ describe('LayerManager GeoJSON path', () => {
     );
     await expect(manager.addData('https://x.com/missing.geojson')).rejects.toThrow(/404/);
     expect(emit).toHaveBeenCalledWith('error', expect.objectContaining({ error: expect.any(Error) }));
+  });
+
+  it('rejects a loose .shp without its siblings with an actionable message', async () => {
+    const { manager, emit, engine } = createManager();
+
+    await expect(manager.addData(new File(['shp'], 'cities.shp'))).rejects.toThrow(
+      /Select the \.shp together with its \.shx and \.dbf/,
+    );
+    // Fails fast, before any engine work.
+    expect(engine.ingest).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith(
+      'error',
+      expect.objectContaining({ error: expect.any(Error) }),
+    );
+  });
+
+  it('loads a loose .shp when its .shx and .dbf siblings are provided', async () => {
+    const { manager, engine } = createManager();
+
+    await manager.addData(new File(['shp'], 'cities.shp'), {
+      id: 'cities',
+      companionFiles: [
+        new File(['shx'], 'cities.shx'),
+        new File(['dbf'], 'cities.dbf'),
+      ],
+    });
+
+    expect(engine.ingest).toHaveBeenCalled();
+  });
+});
+
+describe('isLooseShapefileMissingSiblings', () => {
+  it('flags a lone .shp', () => {
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {})).toBe(true);
+  });
+
+  it('flags a .shp missing either the .shx or the .dbf', () => {
+    expect(
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.shx')],
+      }),
+    ).toBe(true);
+    expect(
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.dbf')],
+      }),
+    ).toBe(true);
+  });
+
+  it('does not flag a .shp with both required siblings (case-insensitive)', () => {
+    expect(
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.SHX'), new File(['x'], 'a.DBF')],
+      }),
+    ).toBe(false);
+  });
+
+  it('does not flag zipped shapefiles, other files, or non-File sources', () => {
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.zip'), {})).toBe(false);
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.geojson'), {})).toBe(false);
+    expect(isLooseShapefileMissingSiblings('https://x.com/a.shp', {})).toBe(false);
   });
 });
 
