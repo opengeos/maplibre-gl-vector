@@ -133,6 +133,52 @@
   display: flex;
 }
 
+/* Resize handles (only rendered when the `resizable` option is set) */
+.vector-control-resize-handle {
+  position: absolute;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  z-index: 1;
+  touch-action: none;
+}
+
+.vector-control-resize-handle::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-color: var(--vc-muted);
+  border-style: solid;
+  opacity: 0.7;
+}
+
+.vector-control-resize-handle:hover::after {
+  border-color: var(--vc-accent);
+  opacity: 1;
+}
+
+.vector-control-resize-right {
+  right: 0;
+  cursor: nwse-resize;
+}
+
+.vector-control-resize-right::after {
+  right: 3px;
+  border-width: 0 2px 2px 0;
+}
+
+.vector-control-resize-left {
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.vector-control-resize-left::after {
+  left: 3px;
+  border-width: 0 0 2px 2px;
+}
+
 /* Panel header */
 .vector-control-header {
   flex: 0 0 auto;
@@ -177,6 +223,13 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* Only while the content overflows: clear room for the (overlay) scrollbar
+   so it does not paint over the inputs/buttons. Toggled from JS so the
+   right margin matches the left whenever there is no scrollbar. */
+.vector-control-content.vector-control-has-scrollbar {
+  padding-right: 8px;
 }
 
 /* Scrollbar styling */
@@ -334,6 +387,92 @@
   flex: 0 0 auto;
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* Sample data dropdown - a custom (non-native) dropdown so the menu is
+   fully themeable in dark mode. */
+.vector-control-sample-row {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.vector-control-sample-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--vc-muted);
+  background: var(--vc-input-bg);
+  border: 1px solid var(--vc-input-border);
+  border-radius: 4px;
+  cursor: pointer;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.vector-control-sample-trigger:hover,
+.vector-control-sample-trigger.open,
+.vector-control-sample-trigger:focus-visible {
+  outline: none;
+  border-color: var(--vc-accent);
+}
+
+.vector-control-sample-trigger-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vector-control-sample-trigger .vector-control-svg-icon {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.vector-control-sample-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--vc-bg);
+  border: 1px solid var(--vc-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  max-height: 220px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.vector-control-sample-menu[hidden] {
+  display: none;
+}
+
+.vector-control-sample-option {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--vc-text);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.vector-control-sample-option:hover,
+.vector-control-sample-option:focus-visible {
+  outline: none;
+  background: var(--vc-hover);
 }
 
 /* Streaming toggle */

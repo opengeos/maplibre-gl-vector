@@ -7,6 +7,7 @@ import type {
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
+  VectorSampleDataset,
 } from '../core/types';
 import { el, svgIcon, ICONS } from './dom';
 import { createLayerListItem } from './layerListItem';
@@ -44,6 +45,10 @@ export interface PanelUIOptions {
   defaultUrl?: string;
   /** Load defaultUrl immediately, as if the user had pressed Load */
   autoLoad?: boolean;
+  /** One-click sample datasets shown below the URL input (row hidden when empty) */
+  sampleData?: VectorSampleDataset[];
+  /** Label shown before the sample links (defaults to 'Load sample data:') */
+  sampleDataLabel?: string;
 }
 
 /**
@@ -119,6 +124,82 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
 
+  // --- Sample data dropdown ------------------------------------------------
+  // A custom (not native <select>) dropdown so the menu is fully themeable
+  // in dark mode -- the native option popup keeps a low-contrast system
+  // highlight. Decoupled from the URL input so it stays empty for the
+  // user's own links; picking one fills the input and loads it. Hidden
+  // entirely when no host supplies samples.
+  const samples = options.sampleData ?? [];
+  const sampleRow = el('div', 'vector-control-sample-row');
+  let onSampleDocPointerDown: ((event: MouseEvent) => void) | null = null;
+  if (samples.length > 0) {
+    const trigger = el('button', 'vector-control-sample-trigger', {
+      type: 'button',
+      'aria-haspopup': 'listbox',
+      'aria-expanded': 'false',
+    });
+    const triggerLabel = el('span', 'vector-control-sample-trigger-label');
+    triggerLabel.textContent = options.sampleDataLabel ?? 'Load sample data...';
+    trigger.appendChild(triggerLabel);
+    trigger.appendChild(svgIcon(ICONS.chevronDown, 14));
+
+    const menu = el('div', 'vector-control-sample-menu', { role: 'listbox' });
+    menu.hidden = true;
+
+    let menuOpen = false;
+    const setMenuOpen = (open: boolean): void => {
+      menuOpen = open;
+      menu.hidden = !open;
+      trigger.setAttribute('aria-expanded', String(open));
+      trigger.classList.toggle('open', open);
+      if (open) (menu.firstElementChild as HTMLElement | null)?.focus();
+    };
+
+    for (const sample of samples) {
+      const option = el('button', 'vector-control-sample-option', {
+        type: 'button',
+        role: 'option',
+        title: sample.url,
+      });
+      option.textContent = sample.label;
+      option.addEventListener('click', () => {
+        setMenuOpen(false);
+        trigger.focus();
+        // Show the user which URL is loading, then load it.
+        urlInput.value = sample.url;
+        // A per-sample ingestMode wins; otherwise fall through to the
+        // streaming toggle so the sample behaves like a manual load.
+        const sampleOptions: VectorLayerOptions = sample.ingestMode
+          ? { ingestMode: sample.ingestMode }
+          : loadOptions();
+        if (sample.name) sampleOptions.name = sample.name;
+        if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
+        void control.addData(sample.url, sampleOptions).catch(() => {
+          // Error already surfaced through the 'error' event.
+        });
+      });
+      menu.appendChild(option);
+    }
+
+    trigger.addEventListener('click', () => setMenuOpen(!menuOpen));
+    sampleRow.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Escape' && menuOpen) {
+        setMenuOpen(false);
+        trigger.focus();
+      }
+    });
+
+    // Close when clicking anywhere outside the dropdown.
+    onSampleDocPointerDown = (event: MouseEvent) => {
+      if (!sampleRow.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onSampleDocPointerDown);
+
+    sampleRow.appendChild(trigger);
+    sampleRow.appendChild(menu);
+  }
+
   // --- Streaming toggle ----------------------------------------------------
   // Applies to subsequent loads; GeoParquet only (others fall back to
   // a materialized table).
@@ -142,11 +223,13 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     if (!message) {
       status.style.display = 'none';
       status.textContent = '';
+      syncScrollbarPadding();
       return;
     }
     status.style.display = 'block';
     status.textContent = message;
     status.classList.toggle('error', isError);
+    syncScrollbarPadding();
   }
 
   // --- Layer list ------------------------------------------------------------
@@ -161,6 +244,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     list.innerHTML = '';
     if (layers.length === 0) {
       list.appendChild(empty);
+      syncScrollbarPadding();
       return;
     }
     // Map layers this control did not create, as insert-before targets
@@ -204,6 +288,18 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
         }),
       );
     }
+    syncScrollbarPadding();
+  }
+
+  // The panel's scrollbar is an overlay in some engines, so it paints over
+  // the right edge of the inputs/buttons when the content overflows.
+  // Reserve room for it only while overflowing, keeping the left and right
+  // margins symmetric when there is no scrollbar.
+  function syncScrollbarPadding(): void {
+    container.classList.toggle(
+      'vector-control-has-scrollbar',
+      container.scrollHeight > container.clientHeight,
+    );
   }
 
   function loadOptions(): VectorLayerOptions {
@@ -238,6 +334,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(dropZone);
   container.appendChild(fileInput);
   container.appendChild(urlRow);
+  if (samples.length > 0) container.appendChild(sampleRow);
   container.appendChild(streamRow);
   container.appendChild(status);
   container.appendChild(el('div', 'vector-control-divider'));
@@ -245,6 +342,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(list);
 
   renderList();
+
+  // Resizing the panel changes the content's own height (so the overflow
+  // state can flip) without firing a layer event; a ResizeObserver keeps
+  // the scrollbar padding in sync with those size changes.
+  const scrollObserver =
+    typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => syncScrollbarPadding())
+      : null;
+  scrollObserver?.observe(container);
 
   // Kick off the initial load through the same path as the Load button,
   // so progress/errors surface in the status line and the input clears
@@ -257,6 +363,10 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     control.off('layeradded', onLayerChange);
     control.off('layerremoved', onLayerChange);
     control.off('layerupdated', onLayerChange);
+    scrollObserver?.disconnect();
+    if (onSampleDocPointerDown) {
+      document.removeEventListener('pointerdown', onSampleDocPointerDown);
+    }
     container.innerHTML = '';
   };
 }

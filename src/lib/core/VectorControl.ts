@@ -69,6 +69,13 @@ export class VectorControl implements IControl {
   private _mapResizeHandler: (() => void) | null = null;
   private _clickOutsideHandler: ((e: MouseEvent) => void) | null = null;
 
+  // User-chosen panel size from the resize handles, reapplied by
+  // _updatePanelPosition so repositioning (map/window resize) keeps it.
+  private _userWidth: number | null = null;
+  private _userHeight: number | null = null;
+  // Active drag teardown, so onRemove can detach mid-resize.
+  private _resizeDragCleanup: (() => void) | null = null;
+
   /**
    * Creates a new VectorControl instance.
    *
@@ -115,6 +122,8 @@ export class VectorControl implements IControl {
         urlPlaceholder: this._options.urlPlaceholder,
         defaultUrl: this._options.defaultUrl,
         autoLoad: this._options.autoLoad,
+        sampleData: this._options.sampleData,
+        sampleDataLabel: this._options.sampleDataLabel,
       });
     }
 
@@ -151,6 +160,8 @@ export class VectorControl implements IControl {
       document.removeEventListener('click', this._clickOutsideHandler);
       this._clickOutsideHandler = null;
     }
+    // Detach any in-flight resize drag listeners.
+    this._resizeDragCleanup?.();
 
     // Tear down panel UI and layers
     this._disposePanelUI?.();
@@ -553,29 +564,149 @@ export class VectorControl implements IControl {
     panel.appendChild(header);
     panel.appendChild(content);
 
+    if (this._options.resizable) {
+      this._addResizeHandles(panel);
+    }
+
     return panel;
+  }
+
+  /**
+   * Adds drag handles in the panel's bottom-left and bottom-right
+   * corners. Pointer drags resize the panel and the chosen size is kept
+   * (in {@link _userWidth}/{@link _userHeight}) so repositioning does not
+   * reset it.
+   *
+   * @param panel - The panel element to attach handles to
+   */
+  private _addResizeHandles(panel: HTMLElement): void {
+    for (const side of ['left', 'right'] as const) {
+      const handle = document.createElement('div');
+      handle.className = `vector-control-resize-handle vector-control-resize-${side}`;
+      handle.setAttribute('aria-hidden', 'true');
+      handle.addEventListener('pointerdown', (event) =>
+        this._beginResize(event, side, panel, handle),
+      );
+      panel.appendChild(handle);
+    }
+  }
+
+  /**
+   * Starts a pointer-driven resize from one of the corner handles.
+   *
+   * The panel is first frozen to explicit left/top pixels (clearing any
+   * right/bottom anchor) so the opposite edge stays put no matter which
+   * corner the control sits in. The right handle then grows the panel
+   * rightward, the left handle leftward; both grow it downward. Sizes are
+   * clamped to a sensible minimum and to the map container.
+   *
+   * @param event - The pointerdown event
+   * @param side - Which corner handle started the drag
+   * @param panel - The panel element being resized
+   * @param handle - The handle element (for pointer capture)
+   */
+  private _beginResize(
+    event: PointerEvent,
+    side: 'left' | 'right',
+    panel: HTMLElement,
+    handle: HTMLElement,
+  ): void {
+    if (!this._mapContainer) return;
+    event.preventDefault();
+    // Keep the drag from bubbling to the document click-outside handler.
+    event.stopPropagation();
+
+    const mapRect = this._mapContainer.getBoundingClientRect();
+    const rect = panel.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+    const startLeft = rect.left - mapRect.left;
+    const startRight = rect.right;
+    const startTop = rect.top;
+
+    const EDGE_MARGIN = 10;
+    // Clamp the preferred minimums to what the map can actually hold, so a
+    // small map container never forces the panel past its edges.
+    const minWidth = Math.min(240, Math.max(120, mapRect.width - 2 * EDGE_MARGIN));
+    const minHeight = Math.min(160, Math.max(120, mapRect.height - 2 * EDGE_MARGIN));
+
+    // Pin the panel to its current rect so the size grows from the dragged
+    // corner regardless of the original anchor, and drop the CSS max-size
+    // caps for the duration of the drag.
+    panel.style.left = `${startLeft}px`;
+    panel.style.top = `${startTop - mapRect.top}px`;
+    panel.style.right = '';
+    panel.style.bottom = '';
+    panel.style.maxWidth = 'none';
+    panel.style.maxHeight = 'none';
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+
+      const maxHeight = Math.max(minHeight, mapRect.bottom - startTop - EDGE_MARGIN);
+      const nextHeight = Math.max(minHeight, Math.min(startHeight + dy, maxHeight));
+
+      let nextWidth: number;
+      let nextLeft = startLeft;
+      if (side === 'right') {
+        const maxWidth = Math.max(minWidth, mapRect.right - rect.left - EDGE_MARGIN);
+        nextWidth = Math.max(minWidth, Math.min(startWidth + dx, maxWidth));
+      } else {
+        const maxWidth = Math.max(minWidth, startRight - mapRect.left - EDGE_MARGIN);
+        nextWidth = Math.max(minWidth, Math.min(startWidth - dx, maxWidth));
+        // Hold the right edge fixed while the left edge follows the drag.
+        nextLeft = startLeft + (startWidth - nextWidth);
+      }
+
+      panel.style.width = `${nextWidth}px`;
+      panel.style.height = `${nextHeight}px`;
+      panel.style.left = `${nextLeft}px`;
+      this._userWidth = nextWidth;
+      this._userHeight = nextHeight;
+    };
+
+    const cleanup = () => {
+      handle.releasePointerCapture?.(event.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', cleanup);
+      handle.removeEventListener('pointercancel', cleanup);
+      this._resizeDragCleanup = null;
+    };
+
+    handle.setPointerCapture?.(event.pointerId);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', cleanup);
+    handle.addEventListener('pointercancel', cleanup);
+    this._resizeDragCleanup = cleanup;
   }
 
   /**
    * Setup event listeners for panel positioning and click-outside behavior.
    */
   private _setupEventListeners(): void {
-    // Click outside to close (check both container and panel since they're now separate)
-    this._clickOutsideHandler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // A click on panel UI can re-render the list before the event
-      // bubbles here, detaching its target; don't treat that as outside.
-      if (!target.isConnected) return;
-      if (
-        this._container &&
-        this._panel &&
-        !this._container.contains(target) &&
-        !this._panel.contains(target)
-      ) {
-        this.collapse();
-      }
-    };
-    document.addEventListener('click', this._clickOutsideHandler);
+    // Click outside to close (check both container and panel since they're
+    // now separate). Skipped when closeOnOutsideClick is false, so the
+    // panel stays open until the header close button is used.
+    if (this._options.closeOnOutsideClick !== false) {
+      this._clickOutsideHandler = (e: MouseEvent) => {
+        const target = e.target as Node;
+        // A click on panel UI can re-render the list before the event
+        // bubbles here, detaching its target; don't treat that as outside.
+        if (!target.isConnected) return;
+        if (
+          this._container &&
+          this._panel &&
+          !this._container.contains(target) &&
+          !this._panel.contains(target)
+        ) {
+          this.collapse();
+        }
+      };
+      document.addEventListener('click', this._clickOutsideHandler);
+    }
 
     // Update panel position on window resize
     this._resizeHandler = () => {
@@ -678,5 +809,15 @@ export class VectorControl implements IControl {
     // Clamp the stylesheet's min-width too, or it overrides maxWidth
     // on very narrow maps.
     this._panel.style.minWidth = `${Math.min(240, availableWidth)}px`;
+
+    // Reapply a resize the user made, clamped to the current map size, so
+    // repositioning keeps their chosen dimensions instead of snapping back.
+    // The lower bound guards a tiny map where `available` can go negative.
+    if (this._userWidth !== null) {
+      this._panel.style.width = `${Math.max(120, Math.min(this._userWidth, availableWidth))}px`;
+    }
+    if (this._userHeight !== null) {
+      this._panel.style.height = `${Math.max(120, Math.min(this._userHeight, available))}px`;
+    }
   }
 }

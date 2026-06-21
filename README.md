@@ -247,6 +247,10 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `urlPlaceholder` | `string` | `'https://example.com/data.parquet'` | Placeholder text for the panel's URL input |
 | `defaultUrl` | `string` | - | Initial value of the panel's URL input (a ready-to-load sample dataset) |
 | `autoLoad` | `boolean` | `false` | Load `defaultUrl` automatically when the control is added to the map |
+| `closeOnOutsideClick` | `boolean` | `true` | Collapse the panel when clicking outside it; set `false` to close only via the header button |
+| `resizable` | `boolean` | `false` | Show bottom-left and bottom-right drag handles so the panel can be resized |
+| `sampleData` | `VectorSampleDataset[]` | - | Sample datasets shown as a "Load sample data" dropdown below the URL input; picking one fills the input and loads it (hidden when empty) |
+| `sampleDataLabel` | `string` | `'Load sample data...'` | Placeholder shown in the sample-data dropdown |
 | `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
 
 #### Data Methods
