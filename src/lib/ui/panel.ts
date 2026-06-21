@@ -125,51 +125,79 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   urlRow.appendChild(urlButton);
 
   // --- Sample data dropdown ------------------------------------------------
-  // Optional examples as a dropdown, decoupled from the URL input so the
-  // input stays empty for the user's own links. Picking one fills the URL
-  // input and loads it. Hidden entirely when no host supplies samples.
+  // A custom (not native <select>) dropdown so the menu is fully themeable
+  // in dark mode -- the native option popup keeps a low-contrast system
+  // highlight. Decoupled from the URL input so it stays empty for the
+  // user's own links; picking one fills the input and loads it. Hidden
+  // entirely when no host supplies samples.
   const samples = options.sampleData ?? [];
   const sampleRow = el('div', 'vector-control-sample-row');
+  let onSampleDocPointerDown: ((event: MouseEvent) => void) | null = null;
   if (samples.length > 0) {
-    const sampleSelect = el('select', 'vector-control-sample-select') as HTMLSelectElement;
-
-    // A disabled placeholder doubles as the label and the reset state.
-    const placeholder = el('option') as HTMLOptionElement;
-    placeholder.value = '';
-    placeholder.textContent = options.sampleDataLabel ?? 'Load sample data...';
-    placeholder.disabled = true;
-    placeholder.selected = true;
-    sampleSelect.appendChild(placeholder);
-
-    samples.forEach((sample, index) => {
-      const option = el('option') as HTMLOptionElement;
-      option.value = String(index);
-      option.textContent = sample.label;
-      option.title = sample.url;
-      sampleSelect.appendChild(option);
+    const trigger = el('button', 'vector-control-sample-trigger', {
+      type: 'button',
+      'aria-haspopup': 'listbox',
+      'aria-expanded': 'false',
     });
+    const triggerLabel = el('span', 'vector-control-sample-trigger-label');
+    triggerLabel.textContent = options.sampleDataLabel ?? 'Load sample data...';
+    trigger.appendChild(triggerLabel);
+    trigger.appendChild(svgIcon(ICONS.chevronDown, 14));
 
-    sampleSelect.addEventListener('change', () => {
-      const sample = samples[Number(sampleSelect.value)];
-      // Snap back to the placeholder so the same sample can be re-picked
-      // and the control reads as an action menu, not a sticky selection.
-      sampleSelect.selectedIndex = 0;
-      if (!sample) return;
-      // Show the user which URL is loading, then load it.
-      urlInput.value = sample.url;
-      // A per-sample ingestMode wins; otherwise fall through to the
-      // streaming toggle so the sample behaves like a manual load.
-      const sampleOptions: VectorLayerOptions = sample.ingestMode
-        ? { ingestMode: sample.ingestMode }
-        : loadOptions();
-      if (sample.name) sampleOptions.name = sample.name;
-      if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
-      void control.addData(sample.url, sampleOptions).catch(() => {
-        // Error already surfaced through the 'error' event.
+    const menu = el('div', 'vector-control-sample-menu', { role: 'listbox' });
+    menu.hidden = true;
+
+    let menuOpen = false;
+    const setMenuOpen = (open: boolean): void => {
+      menuOpen = open;
+      menu.hidden = !open;
+      trigger.setAttribute('aria-expanded', String(open));
+      trigger.classList.toggle('open', open);
+      if (open) (menu.firstElementChild as HTMLElement | null)?.focus();
+    };
+
+    for (const sample of samples) {
+      const option = el('button', 'vector-control-sample-option', {
+        type: 'button',
+        role: 'option',
+        title: sample.url,
       });
+      option.textContent = sample.label;
+      option.addEventListener('click', () => {
+        setMenuOpen(false);
+        trigger.focus();
+        // Show the user which URL is loading, then load it.
+        urlInput.value = sample.url;
+        // A per-sample ingestMode wins; otherwise fall through to the
+        // streaming toggle so the sample behaves like a manual load.
+        const sampleOptions: VectorLayerOptions = sample.ingestMode
+          ? { ingestMode: sample.ingestMode }
+          : loadOptions();
+        if (sample.name) sampleOptions.name = sample.name;
+        if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
+        void control.addData(sample.url, sampleOptions).catch(() => {
+          // Error already surfaced through the 'error' event.
+        });
+      });
+      menu.appendChild(option);
+    }
+
+    trigger.addEventListener('click', () => setMenuOpen(!menuOpen));
+    sampleRow.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Escape' && menuOpen) {
+        setMenuOpen(false);
+        trigger.focus();
+      }
     });
 
-    sampleRow.appendChild(sampleSelect);
+    // Close when clicking anywhere outside the dropdown.
+    onSampleDocPointerDown = (event: MouseEvent) => {
+      if (!sampleRow.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onSampleDocPointerDown);
+
+    sampleRow.appendChild(trigger);
+    sampleRow.appendChild(menu);
   }
 
   // --- Streaming toggle ----------------------------------------------------
@@ -336,6 +364,9 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     control.off('layerremoved', onLayerChange);
     control.off('layerupdated', onLayerChange);
     scrollObserver?.disconnect();
+    if (onSampleDocPointerDown) {
+      document.removeEventListener('pointerdown', onSampleDocPointerDown);
+    }
     container.innerHTML = '';
   };
 }

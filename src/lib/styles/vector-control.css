@@ -389,38 +389,90 @@
   font-size: 12px;
 }
 
-/* Sample data dropdown */
+/* Sample data dropdown - a custom (non-native) dropdown so the menu is
+   fully themeable in dark mode. */
 .vector-control-sample-row {
+  position: relative;
   margin-bottom: 8px;
 }
 
-.vector-control-sample-select {
+.vector-control-sample-trigger {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 8px;
   font-size: 12px;
   font-family: inherit;
-  color: var(--vc-text);
+  color: var(--vc-muted);
   background: var(--vc-input-bg);
   border: 1px solid var(--vc-input-border);
   border-radius: 4px;
   cursor: pointer;
   box-sizing: border-box;
+  text-align: left;
 }
 
-.vector-control-sample-select:focus {
+.vector-control-sample-trigger:hover,
+.vector-control-sample-trigger.open,
+.vector-control-sample-trigger:focus-visible {
   outline: none;
   border-color: var(--vc-accent);
 }
 
-/* Theme the native option list so the dropdown keeps good contrast in
-   dark mode (browsers otherwise fall back to a light system menu). */
-.vector-control-sample-select option {
-  background: var(--vc-bg);
-  color: var(--vc-text);
+.vector-control-sample-trigger-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.vector-control-sample-select option:disabled {
-  color: var(--vc-muted);
+.vector-control-sample-trigger .vector-control-svg-icon {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.vector-control-sample-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--vc-bg);
+  border: 1px solid var(--vc-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  max-height: 220px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.vector-control-sample-menu[hidden] {
+  display: none;
+}
+
+.vector-control-sample-option {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--vc-text);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.vector-control-sample-option:hover,
+.vector-control-sample-option:focus-visible {
+  outline: none;
+  background: var(--vc-hover);
 }
 
 /* Streaming toggle */

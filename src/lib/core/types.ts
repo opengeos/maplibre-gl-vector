@@ -201,6 +201,14 @@ export interface VectorControlOptions {
   autoLoad?: boolean;
 
   /**
+   * Collapse the panel when the user clicks outside it (e.g. on the map).
+   * Set to `false` to keep the panel open until the user closes it with
+   * the header's close button.
+   * @default true
+   */
+  closeOnOutsideClick?: boolean;
+
+  /**
    * Show drag handles in the panel's bottom-left and bottom-right
    * corners so the user can resize it. The bottom-right handle grows the
    * panel rightward, the bottom-left handle leftward (keeping the

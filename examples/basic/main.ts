@@ -32,6 +32,9 @@ map.on('load', () => {
     title: 'Vector Data',
     collapsed: false,
     panelWidth: 320,
+    // Keep the panel open until the close button is clicked (clicking the
+    // map should not collapse it).
+    closeOnOutsideClick: false,
     // Let the panel be dragged larger from its bottom corners.
     resizable: true,
     // Sample datasets are offered as one-click links inside the panel

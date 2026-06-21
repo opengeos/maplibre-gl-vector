@@ -685,22 +685,26 @@ export class VectorControl implements IControl {
    * Setup event listeners for panel positioning and click-outside behavior.
    */
   private _setupEventListeners(): void {
-    // Click outside to close (check both container and panel since they're now separate)
-    this._clickOutsideHandler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // A click on panel UI can re-render the list before the event
-      // bubbles here, detaching its target; don't treat that as outside.
-      if (!target.isConnected) return;
-      if (
-        this._container &&
-        this._panel &&
-        !this._container.contains(target) &&
-        !this._panel.contains(target)
-      ) {
-        this.collapse();
-      }
-    };
-    document.addEventListener('click', this._clickOutsideHandler);
+    // Click outside to close (check both container and panel since they're
+    // now separate). Skipped when closeOnOutsideClick is false, so the
+    // panel stays open until the header close button is used.
+    if (this._options.closeOnOutsideClick !== false) {
+      this._clickOutsideHandler = (e: MouseEvent) => {
+        const target = e.target as Node;
+        // A click on panel UI can re-render the list before the event
+        // bubbles here, detaching its target; don't treat that as outside.
+        if (!target.isConnected) return;
+        if (
+          this._container &&
+          this._panel &&
+          !this._container.contains(target) &&
+          !this._panel.contains(target)
+        ) {
+          this.collapse();
+        }
+      };
+      document.addEventListener('click', this._clickOutsideHandler);
+    }
 
     // Update panel position on window resize
     this._resizeHandler = () => {

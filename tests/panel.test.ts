@@ -93,11 +93,17 @@ describe('renderPanelUI URL input', () => {
 });
 
 describe('renderPanelUI sample data', () => {
-  /** Pick the sample at `index` from the dropdown, firing the change handler. */
+  const trigger = (container: HTMLElement) =>
+    container.querySelector<HTMLButtonElement>('.vector-control-sample-trigger')!;
+  const menu = (container: HTMLElement) =>
+    container.querySelector<HTMLDivElement>('.vector-control-sample-menu')!;
+  const optionButtons = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLButtonElement>('.vector-control-sample-option'));
+
+  /** Open the dropdown and click the option at `index`. */
   function pickSample(container: HTMLElement, index: number): void {
-    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
-    select.value = String(index);
-    select.dispatchEvent(new Event('change'));
+    trigger(container).click();
+    optionButtons(container)[index].click();
   }
 
   it('renders no sample row when no samples are given', () => {
@@ -116,7 +122,7 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 
-  it('renders a placeholder plus one option per sample and keeps the URL input empty', () => {
+  it('renders a trigger plus one option per sample, menu closed, URL input empty', () => {
     const container = document.createElement('div');
     const dispose = renderPanelUI({
       container,
@@ -127,16 +133,13 @@ describe('renderPanelUI sample data', () => {
       ],
     });
 
-    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
-    expect(select).not.toBeNull();
-    const options = Array.from(select.options);
-    expect(options.map((option) => option.textContent)).toEqual([
+    expect(trigger(container).querySelector('.vector-control-sample-trigger-label')!.textContent).toBe(
       'Load sample data...',
-      'Countries',
-      'Cities',
-    ]);
-    expect(options[0].disabled).toBe(true);
-    expect(select.value).toBe('');
+    );
+    expect(menu(container).hidden).toBe(true);
+    expect(trigger(container).getAttribute('aria-expanded')).toBe('false');
+    expect(optionButtons(container).map((b) => b.textContent)).toEqual(['Countries', 'Cities']);
+    expect(optionButtons(container)[0].title).toBe('https://example.com/countries.parquet');
 
     const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
     expect(input.value).toBe('');
@@ -152,12 +155,30 @@ describe('renderPanelUI sample data', () => {
       sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
     });
 
-    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
-    expect(select.options[0].textContent).toBe('Try a sample...');
+    expect(trigger(container).querySelector('.vector-control-sample-trigger-label')!.textContent).toBe(
+      'Try a sample...',
+    );
     dispose();
   });
 
-  it('fills the URL input and loads on select, honouring the streaming toggle by default', () => {
+  it('opens the menu when the trigger is clicked', () => {
+    const container = document.createElement('div');
+    const dispose = renderPanelUI({
+      container,
+      control: createFakeHost(),
+      sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
+    });
+
+    trigger(container).click();
+    expect(menu(container).hidden).toBe(false);
+    expect(trigger(container).getAttribute('aria-expanded')).toBe('true');
+
+    trigger(container).click();
+    expect(menu(container).hidden).toBe(true);
+    dispose();
+  });
+
+  it('fills the URL input, loads, and closes the menu when an option is picked', () => {
     const container = document.createElement('div');
     const host = createFakeHost();
     host.addData = vi.fn(async () => ({}) as never);
@@ -171,6 +192,7 @@ describe('renderPanelUI sample data', () => {
 
     const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
     expect(input.value).toBe('https://example.com/countries.parquet');
+    expect(menu(container).hidden).toBe(true);
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',
       { ingestMode: 'table' },
@@ -178,21 +200,23 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 
-  it('resets the dropdown to the placeholder after a selection', () => {
+  it('closes the menu on an outside pointerdown', () => {
     const container = document.createElement('div');
-    const host = createFakeHost();
-    host.addData = vi.fn(async () => ({}) as never);
+    document.body.appendChild(container);
     const dispose = renderPanelUI({
       container,
-      control: host,
+      control: createFakeHost(),
       sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
     });
 
-    pickSample(container, 0);
+    trigger(container).click();
+    expect(menu(container).hidden).toBe(false);
 
-    const select = container.querySelector<HTMLSelectElement>('.vector-control-sample-select')!;
-    expect(select.value).toBe('');
+    document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(menu(container).hidden).toBe(true);
+
     dispose();
+    container.remove();
   });
 
   it('passes a per-sample name and render mode through to addData', () => {
