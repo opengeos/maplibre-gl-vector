@@ -120,3 +120,20 @@ export function summarizeFeatureCollection(collection: FeatureCollection): GeoJS
     bbox: bbox[0] <= bbox[2] && bbox[1] <= bbox[3] ? bbox : undefined,
   };
 }
+
+/**
+ * Collects the union of attribute (property) names across a collection's
+ * features, in first-seen order. A host uses these to offer attribute-driven
+ * choices (e.g. a label field) for a loaded layer.
+ *
+ * @param collection - The FeatureCollection to scan
+ * @returns The distinct property names found across all features
+ */
+export function collectFieldNames(collection: FeatureCollection): string[] {
+  const names = new Set<string>();
+  for (const feature of collection.features as Feature[]) {
+    if (!feature.properties) continue;
+    for (const key of Object.keys(feature.properties)) names.add(key);
+  }
+  return Array.from(names);
+}

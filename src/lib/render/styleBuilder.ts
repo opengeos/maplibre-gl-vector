@@ -79,12 +79,70 @@ export const LAYER_SUFFIXES = [
   'heatmap',
   'cluster',
   'cluster-count',
+  'label',
 ] as const;
 export type LayerSuffix = (typeof LAYER_SUFFIXES)[number];
+
+/** Default size, in pixels, of attribute label text. */
+export const DEFAULT_LABEL_SIZE = 12;
+/** Default color of attribute label text. */
+export const DEFAULT_LABEL_COLOR = '#333333';
+/** Default color of the halo drawn behind attribute label text. */
+export const DEFAULT_LABEL_HALO_COLOR = '#ffffff';
+/** Default width, in pixels, of the attribute label text halo. */
+export const DEFAULT_LABEL_HALO_WIDTH = 1;
 
 /** Resolve a style's point render mode, defaulting to 'circle'. */
 export function pointModeOf(style: VectorLayerStyle): 'circle' | 'heatmap' | 'cluster' {
   return style.pointMode ?? 'circle';
+}
+
+/**
+ * Whether a style requests attribute labels (a non-empty `labelField`).
+ *
+ * @param style - The layer style
+ * @returns True when a label layer should be created
+ */
+export function hasLabels(style: VectorLayerStyle): boolean {
+  return typeof style.labelField === 'string' && style.labelField.trim().length > 0;
+}
+
+/**
+ * Builds the `text-field` expression for a label layer: the feature's
+ * `labelField` value coerced to a string, with missing values rendered as
+ * empty text (so a cluster aggregate or a feature lacking the field shows
+ * nothing rather than breaking the layer).
+ *
+ * @param style - The layer style (its `labelField` drives the expression)
+ * @returns A MapLibre `text-field` expression
+ */
+export function labelTextField(style: VectorLayerStyle): PropertyValueSpecification<string> {
+  return [
+    'to-string',
+    ['coalesce', ['get', style.labelField ?? ''], ''],
+  ] as unknown as PropertyValueSpecification<string>;
+}
+
+/**
+ * Builds the symbol-layer layout for a label layer.
+ *
+ * @param style - The layer style
+ * @param visible - Whether the layer starts visible
+ * @returns The MapLibre layout object for the label symbol layer
+ */
+export function buildLabelLayout(
+  style: VectorLayerStyle,
+  visible: boolean,
+): Record<string, unknown> {
+  const allowOverlap = style.labelAllowOverlap ?? false;
+  return {
+    visibility: visible ? 'visible' : 'none',
+    'text-field': labelTextField(style),
+    'text-size': style.labelSize ?? DEFAULT_LABEL_SIZE,
+    'symbol-placement': style.labelPlacement === 'line' ? 'line' : 'point',
+    'text-allow-overlap': allowOverlap,
+    'text-ignore-placement': allowOverlap,
+  };
 }
 
 /**
@@ -178,6 +236,13 @@ export function buildPaint(
         'text-color': '#ffffff',
         'text-opacity': master,
       };
+    case 'label':
+      return {
+        'text-color': style.labelColor ?? DEFAULT_LABEL_COLOR,
+        'text-halo-color': style.labelHaloColor ?? DEFAULT_LABEL_HALO_COLOR,
+        'text-halo-width': Math.max(0, style.labelHaloWidth ?? DEFAULT_LABEL_HALO_WIDTH),
+        'text-opacity': master,
+      };
   }
 }
 
@@ -228,6 +293,16 @@ export function stylePatchToPaintOps(
   push('heatmap', 'heatmap-intensity', patch.heatmapIntensity);
   push('cluster', 'circle-color', circleColor);
   push('cluster', 'circle-opacity', patch.circleOpacity === undefined ? undefined : patch.circleOpacity * master);
+  // Label paint. text-size, placement, and the text-field itself are layout
+  // (not paint) and are applied by the layer manager, which also adds or
+  // removes the label layer when the labelField is set or cleared.
+  push('label', 'text-color', patch.labelColor);
+  push('label', 'text-halo-color', patch.labelHaloColor);
+  push(
+    'label',
+    'text-halo-width',
+    patch.labelHaloWidth === undefined ? undefined : Math.max(0, patch.labelHaloWidth),
+  );
 
   return ops;
 }
@@ -264,6 +339,7 @@ export function opacityToPaintOps(
   push('cluster', 'circle-opacity', style.circleOpacity * master);
   push('cluster', 'circle-stroke-opacity', master);
   push('cluster-count', 'text-opacity', master);
+  push('label', 'text-opacity', master);
 
   return ops;
 }

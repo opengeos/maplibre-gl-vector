@@ -382,6 +382,45 @@ export interface VectorLayerStyle {
    * @default 14
    */
   clusterMaxZoom?: number;
+  /**
+   * Attribute whose value is rendered as a text label for every feature, via
+   * a dedicated `symbol` map layer drawn on top of the geometry. An empty
+   * string (or omitted) means no labels. Labels apply to every geometry type
+   * and to both render modes; on polygons the label sits at the centroid.
+   */
+  labelField?: string;
+  /**
+   * Label text size in pixels (when `labelField` is set).
+   * @default 12
+   */
+  labelSize?: number;
+  /**
+   * Label text color (when `labelField` is set).
+   * @default '#333333'
+   */
+  labelColor?: string;
+  /**
+   * Color of the halo drawn behind label text (when `labelField` is set).
+   * @default '#ffffff'
+   */
+  labelHaloColor?: string;
+  /**
+   * Width of the label text halo in pixels (when `labelField` is set).
+   * @default 1
+   */
+  labelHaloWidth?: number;
+  /**
+   * Label placement: `'point'` anchors one label per feature (the polygon
+   * centroid for polygons); `'line'` places labels along line geometry.
+   * @default 'point'
+   */
+  labelPlacement?: 'point' | 'line';
+  /**
+   * Let labels overlap instead of hiding colliding ones (when `labelField`
+   * is set).
+   * @default false
+   */
+  labelAllowOverlap?: boolean;
 }
 
 /**
@@ -523,6 +562,12 @@ export interface VectorLayerInfo {
   geometryType: GeometryCategory;
   /** Number of features, when known */
   featureCount?: number;
+  /**
+   * Attribute field names found in the layer's features, when known. Populated
+   * for GeoJSON-rendered layers (the union of property keys across features);
+   * a host uses it to offer attribute-driven choices such as a label field.
+   */
+  fields?: string[];
   /** Source size in bytes, when known */
   byteSize?: number;
   /** Layer extent in EPSG:4326 [minX, minY, maxX, maxY] */
