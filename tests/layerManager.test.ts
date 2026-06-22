@@ -485,6 +485,47 @@ describe('LayerManager layer operations', () => {
     expect(manager.getLayer('poly')?.style.fillColor).toBe('#ff0000');
   });
 
+  it('exposes attribute field names for a GeoJSON layer', async () => {
+    const { manager } = createManager();
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(info.fields).toEqual(['name']);
+  });
+
+  it('creates a label layer when a layer is added with a labelField', async () => {
+    const { manager } = createManager();
+    const info = await manager.addData(POLYGON_FC, {
+      id: 'poly',
+      fitBounds: false,
+      style: { labelField: 'name' },
+    });
+    expect(info.layerIds).toEqual(['poly-fill', 'poly-outline', 'poly-label']);
+  });
+
+  it('adds, restyles, and removes the label layer as the labelField changes', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(manager.getLayer('poly')?.layerIds).not.toContain('poly-label');
+
+    // Setting a labelField adds the symbol layer.
+    manager.setLayerStyle('poly', { labelField: 'name' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-label', type: 'symbol' }),
+      undefined,
+    );
+    expect(manager.getLayer('poly')?.layerIds).toContain('poly-label');
+
+    // A size change updates the symbol layout in place (no rebuild).
+    map.addLayer.mockClear();
+    manager.setLayerStyle('poly', { labelSize: 20 });
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('poly-label', 'text-size', 20);
+    expect(map.addLayer).not.toHaveBeenCalled();
+
+    // Clearing the field removes the label layer.
+    manager.setLayerStyle('poly', { labelField: '' });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-label');
+    expect(manager.getLayer('poly')?.layerIds).not.toContain('poly-label');
+  });
+
   it('zooms to a layer', async () => {
     const { manager, map } = createManager();
     await manager.addData(POLYGON_FC, { id: 'poly' });

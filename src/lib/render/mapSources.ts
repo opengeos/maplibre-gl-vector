@@ -6,7 +6,7 @@ import type {
 import type { FeatureCollection } from 'geojson';
 import type { GeometryCategory, VectorLayerStyle } from '../core/types';
 import type { Bbox } from '../utils/geometry';
-import { buildPaint, mapLayerId, pointModeOf } from './styleBuilder';
+import { buildLabelLayout, buildPaint, hasLabels, mapLayerId, pointModeOf } from './styleBuilder';
 
 /** Map layer roles created by the geometry-type loop (excludes heatmap/cluster). */
 type GeometrySuffix = 'fill' | 'outline' | 'line' | 'circle';
@@ -195,18 +195,28 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
   // (sourceLayer set) and other geometries always use the standard roles.
   const pointMode = !sourceLayer && geometryType === 'point' ? pointModeOf(style) : 'circle';
 
+  // An attribute label layer is appended last so it draws on top of the
+  // geometry. Added for every geometry type and render mode; the symbol layer
+  // references the same source (and source-layer for tiles).
+  const withLabel = (ids: string[]): string[] => {
+    if (hasLabels(style)) {
+      ids.push(addLabelLayer(map, { layerId, style, visible, opacity, sourceLayer, beforeId }));
+    }
+    return ids;
+  };
+
   if (pointMode === 'heatmap') {
-    return [
+    return withLabel([
       add(mapLayerId(layerId, 'heatmap'), {
         type: 'heatmap',
         filter: POINT_FILTER,
         paint: buildPaint('heatmap', style, opacity),
       }),
-    ];
+    ]);
   }
 
   if (pointMode === 'cluster') {
-    return [
+    return withLabel([
       add(mapLayerId(layerId, 'cluster'), {
         type: 'circle',
         filter: CLUSTER_FILTER,
@@ -229,17 +239,64 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
         filter: UNCLUSTERED_FILTER,
         paint: buildPaint('circle', style, opacity),
       }),
-    ];
+    ]);
   }
 
-  return suffixesForGeometry(geometryType).map((suffix) =>
-    add(mapLayerId(layerId, suffix), {
-      type: SUFFIX_TYPES[suffix],
-      ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-      filter: SUFFIX_FILTERS[suffix],
-      paint: buildPaint(suffix, style, opacity),
-    }),
+  return withLabel(
+    suffixesForGeometry(geometryType).map((suffix) =>
+      add(mapLayerId(layerId, suffix), {
+        type: SUFFIX_TYPES[suffix],
+        ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+        filter: SUFFIX_FILTERS[suffix],
+        paint: buildPaint(suffix, style, opacity),
+      }),
+    ),
   );
+}
+
+/**
+ * Options for adding the attribute label layer of a vector layer.
+ */
+export interface AddLabelLayerOptions {
+  /** The vector layer id */
+  layerId: string;
+  /** Layer style (its label* fields drive the symbol layer) */
+  style: VectorLayerStyle;
+  /** Whether the layer starts visible */
+  visible: boolean;
+  /** Master opacity (0-1) multiplied into the text opacity */
+  opacity?: number;
+  /** source-layer name for vector tile sources (omit for geojson) */
+  sourceLayer?: string;
+  /** Existing map layer id to insert the label layer before */
+  beforeId?: string;
+}
+
+/**
+ * Adds the attribute label `symbol` layer for a vector layer, rendering the
+ * style's `labelField` value as text for every feature.
+ *
+ * @param map - The MapLibre map
+ * @param options - Label layer creation options
+ * @returns The created label map layer id
+ */
+export function addLabelLayer(map: MapLibreMap, options: AddLabelLayerOptions): string {
+  const { layerId, style, visible, opacity, sourceLayer, beforeId } = options;
+  const id = mapLayerId(layerId, 'label');
+  const before = beforeId && map.getLayer(beforeId) ? beforeId : undefined;
+  map.addLayer(
+    {
+      id,
+      type: 'symbol',
+      source: sourceIdFor(layerId),
+      ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
+      layout: buildLabelLayout(style, visible),
+      paint: buildPaint('label', style, opacity),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+    before,
+  );
+  return id;
 }
 
 /**

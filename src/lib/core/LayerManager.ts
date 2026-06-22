@@ -15,15 +15,20 @@ import { detectSource } from '../formats/detect';
 import { sniffRemoteGeoJSON } from '../formats/geojsonSniff';
 import { decideRenderMode } from '../render/renderMode';
 import {
+  DEFAULT_LABEL_SIZE,
   DEFAULT_STYLE,
   applyOpacity,
   applyStyle,
   clampOpacity,
+  hasLabels,
+  labelTextField,
+  mapLayerId,
   pointModeOf,
 } from '../render/styleBuilder';
 import {
   addGeoJSONSource,
   addGeometryLayers,
+  addLabelLayer,
   addVectorTileSource,
   clusterOptionsFor,
   removeLayersAndSource,
@@ -31,7 +36,7 @@ import {
   sourceIdFor,
 } from '../render/mapSources';
 import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../tiles/protocol';
-import { summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
+import { collectFieldNames, summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
 import { generateId } from '../utils/helpers';
 import { getMaplibre } from '../utils/maplibre';
 import { assertRemoteFileSupported } from '../utils/remote';
@@ -423,13 +428,84 @@ export class LayerManager {
     record.info.style = next;
     // pointMode (and cluster radius/maxZoom) are structural: they change the
     // layer types and/or the source's clustering, which setPaintProperty cannot
-    // express, so rebuild the layers instead of patching paint.
+    // express, so rebuild the layers instead of patching paint. The rebuild
+    // re-adds the label layer from the current style, so no separate label
+    // handling is needed on that branch.
     if (this._isStructuralPointChange(record, prev, next)) {
       this._rebuildPointLayers(record);
     } else {
       applyStyle(this._map, record.info, patch, record.info.opacity);
+      this._applyLabelChange(record, prev, next, patch);
     }
     this._emit('layerupdated', { layer: { ...record.info } });
+  }
+
+  /**
+   * Reconciles the attribute label layer after a style patch: adds it when a
+   * labelField is newly set, removes it when cleared, and otherwise applies
+   * the label layout changes (text-field, size, placement, overlap) that
+   * `applyStyle` (which only touches paint) cannot.
+   */
+  private _applyLabelChange(
+    record: LayerRecord,
+    prev: VectorLayerStyle,
+    next: VectorLayerStyle,
+    patch: Partial<VectorLayerStyle>,
+  ): void {
+    const had = hasLabels(prev);
+    const has = hasLabels(next);
+    const labelId = mapLayerId(record.info.id, 'label');
+
+    if (has && (!had || !this._map.getLayer(labelId))) {
+      this._addLabelLayer(record);
+      return;
+    }
+    if (!has) {
+      if (had && this._map.getLayer(labelId)) {
+        this._map.removeLayer(labelId);
+        record.info.layerIds = record.info.layerIds.filter((id) => id !== labelId);
+      }
+      return;
+    }
+
+    // Both before and after have labels: apply the layout-side changes (paint
+    // changes already went through applyStyle).
+    if (patch.labelField !== undefined) {
+      this._map.setLayoutProperty(labelId, 'text-field', labelTextField(next));
+    }
+    if (patch.labelSize !== undefined) {
+      this._map.setLayoutProperty(labelId, 'text-size', next.labelSize ?? DEFAULT_LABEL_SIZE);
+    }
+    if (patch.labelPlacement !== undefined) {
+      this._map.setLayoutProperty(
+        labelId,
+        'symbol-placement',
+        next.labelPlacement === 'line' ? 'line' : 'point',
+      );
+    }
+    if (patch.labelAllowOverlap !== undefined) {
+      const allow = next.labelAllowOverlap ?? false;
+      this._map.setLayoutProperty(labelId, 'text-allow-overlap', allow);
+      this._map.setLayoutProperty(labelId, 'text-ignore-placement', allow);
+    }
+  }
+
+  /**
+   * Adds the attribute label layer for a record and records its id, choosing
+   * the source-layer for tile-rendered layers.
+   */
+  private _addLabelLayer(record: LayerRecord): void {
+    const labelId = mapLayerId(record.info.id, 'label');
+    if (this._map.getLayer(labelId)) return;
+    addLabelLayer(this._map, {
+      layerId: record.info.id,
+      style: record.info.style,
+      visible: record.info.visible,
+      opacity: record.info.opacity,
+      sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+      beforeId: record.info.beforeId,
+    });
+    if (!record.info.layerIds.includes(labelId)) record.info.layerIds.push(labelId);
   }
 
   /**
@@ -742,6 +818,7 @@ export class LayerManager {
     record.info.byteSize = byteSize;
     record.info.bbox = summary.bbox;
     record.info.geometryType = summary.geometryType;
+    record.info.fields = collectFieldNames(collection);
 
     const mode = decideRenderMode({
       requested: options.renderMode,
@@ -902,6 +979,7 @@ export class LayerManager {
     if (record.info.geometryType === 'unknown') {
       record.info.geometryType = summarizeFeatureCollection(collection).geometryType;
     }
+    record.info.fields = collectFieldNames(collection);
 
     record.info.renderMode = 'geojson';
     // Only point layers use the cached collection (for a pointMode rebuild).

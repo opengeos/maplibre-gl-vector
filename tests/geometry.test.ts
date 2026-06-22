@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { FeatureCollection } from 'geojson';
 import {
   classifyGeometryType,
+  collectFieldNames,
   mergeGeometryCategory,
   summarizeFeatureCollection,
   toFeatureCollection,
@@ -105,5 +106,26 @@ describe('summarizeFeatureCollection', () => {
     });
     expect(summary.featureCount).toBe(1);
     expect(summary.bbox).toBeUndefined();
+  });
+});
+
+describe('collectFieldNames', () => {
+  it('collects the union of property names in first-seen order', () => {
+    const fc: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: null as never, properties: { name: 'a', pop: 1 } },
+        { type: 'Feature', geometry: null as never, properties: { name: 'b', area: 2 } },
+      ],
+    };
+    expect(collectFieldNames(fc)).toEqual(['name', 'pop', 'area']);
+  });
+
+  it('returns an empty array when no feature has properties', () => {
+    const fc: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: null as never, properties: null }],
+    };
+    expect(collectFieldNames(fc)).toEqual([]);
   });
 });

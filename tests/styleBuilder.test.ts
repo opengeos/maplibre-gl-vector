@@ -3,8 +3,11 @@ import {
   DEFAULT_STYLE,
   applyOpacity,
   applyStyle,
+  buildLabelLayout,
   buildPaint,
   clampOpacity,
+  hasLabels,
+  labelTextField,
   mapLayerId,
   opacityToPaintOps,
   stylePatchToPaintOps,
@@ -206,5 +209,88 @@ describe('applyOpacity', () => {
 describe('mapLayerId', () => {
   it('joins the layer id and suffix', () => {
     expect(mapLayerId('abc', 'circle')).toBe('abc-circle');
+  });
+});
+
+describe('labels', () => {
+  it('hasLabels is true only for a non-empty labelField', () => {
+    expect(hasLabels(DEFAULT_STYLE)).toBe(false);
+    expect(hasLabels({ ...DEFAULT_STYLE, labelField: '' })).toBe(false);
+    expect(hasLabels({ ...DEFAULT_STYLE, labelField: '   ' })).toBe(false);
+    expect(hasLabels({ ...DEFAULT_STYLE, labelField: 'name' })).toBe(true);
+  });
+
+  it('builds a coalescing, stringifying text-field expression', () => {
+    expect(labelTextField({ ...DEFAULT_STYLE, labelField: 'name' })).toEqual([
+      'to-string',
+      ['coalesce', ['get', 'name'], ''],
+    ]);
+  });
+
+  it('builds label paint from defaults and overrides', () => {
+    expect(buildPaint('label', { ...DEFAULT_STYLE, labelField: 'name' })).toEqual({
+      'text-color': '#333333',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1,
+      'text-opacity': 1,
+    });
+    expect(
+      buildPaint(
+        'label',
+        {
+          ...DEFAULT_STYLE,
+          labelField: 'name',
+          labelColor: '#ff0000',
+          labelHaloColor: '#000000',
+          labelHaloWidth: 3,
+        },
+        0.5,
+      ),
+    ).toEqual({
+      'text-color': '#ff0000',
+      'text-halo-color': '#000000',
+      'text-halo-width': 3,
+      'text-opacity': 0.5,
+    });
+  });
+
+  it('builds the symbol layout honoring placement and overlap', () => {
+    expect(
+      buildLabelLayout({ ...DEFAULT_STYLE, labelField: 'name', labelSize: 18 }, true),
+    ).toMatchObject({
+      visibility: 'visible',
+      'text-field': ['to-string', ['coalesce', ['get', 'name'], '']],
+      'text-size': 18,
+      'symbol-placement': 'point',
+      'text-allow-overlap': false,
+      'text-ignore-placement': false,
+    });
+    expect(
+      buildLabelLayout(
+        { ...DEFAULT_STYLE, labelField: 'name', labelPlacement: 'line', labelAllowOverlap: true },
+        false,
+      ),
+    ).toMatchObject({
+      visibility: 'none',
+      'symbol-placement': 'line',
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+    });
+  });
+
+  it('emits label paint ops in a style patch and an opacity change', () => {
+    const ops = stylePatchToPaintOps(
+      { id: 'a', layerIds: ['a-fill', 'a-label'] },
+      { labelColor: '#ff0000', labelHaloWidth: 2 },
+    );
+    expect(ops).toContainEqual({ layerId: 'a-label', property: 'text-color', value: '#ff0000' });
+    expect(ops).toContainEqual({ layerId: 'a-label', property: 'text-halo-width', value: 2 });
+
+    const opacityOps = opacityToPaintOps(
+      { id: 'a', layerIds: ['a-fill', 'a-label'] },
+      DEFAULT_STYLE,
+      0.4,
+    );
+    expect(opacityOps).toContainEqual({ layerId: 'a-label', property: 'text-opacity', value: 0.4 });
   });
 });
