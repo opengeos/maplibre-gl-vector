@@ -458,12 +458,17 @@ export class LayerManager {
 
     if (has && (!had || !this._map.getLayer(labelId))) {
       this._addLabelLayer(record);
+      // The label layer joined layerIds, so re-wire the picker to cover it
+      // (picker handlers are attached per layer id; see _attachPicker).
+      this._refreshPicker(record);
       return;
     }
     if (!has) {
       if (had && this._map.getLayer(labelId)) {
         this._map.removeLayer(labelId);
         record.info.layerIds = record.info.layerIds.filter((id) => id !== labelId);
+        // Drop the now-stale picker handler for the removed label layer.
+        this._refreshPicker(record);
       }
       return;
     }
@@ -506,6 +511,16 @@ export class LayerManager {
       beforeId: record.info.beforeId,
     });
     if (!record.info.layerIds.includes(labelId)) record.info.layerIds.push(labelId);
+  }
+
+  /**
+   * Re-attaches the picker so its handlers cover the current `layerIds` after a
+   * label layer is added or removed at runtime. A no-op when the picker is off.
+   */
+  private _refreshPicker(record: LayerRecord): void {
+    if (!record.info.picker) return;
+    this._detachPicker(record);
+    this._attachPicker(record);
   }
 
   /**

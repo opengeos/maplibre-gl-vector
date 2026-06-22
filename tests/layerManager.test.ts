@@ -513,6 +513,10 @@ describe('LayerManager layer operations', () => {
       undefined,
     );
     expect(manager.getLayer('poly')?.layerIds).toContain('poly-label');
+    // The picker is re-wired so the new label layer gets click handlers too.
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-label', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseenter', 'poly-label', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseleave', 'poly-label', expect.any(Function));
 
     // A size change updates the symbol layout in place (no rebuild).
     map.addLayer.mockClear();
