@@ -9,7 +9,7 @@ import type { Bbox } from '../utils/geometry';
 import { buildLabelLayout, buildPaint, hasLabels, mapLayerId, pointModeOf } from './styleBuilder';
 
 /** Map layer roles created by the geometry-type loop (excludes heatmap/cluster). */
-type GeometrySuffix = 'fill' | 'outline' | 'line' | 'circle';
+type GeometrySuffix = 'fill' | 'extrusion' | 'outline' | 'line' | 'circle';
 
 /**
  * Builds the map source id for a vector layer.
@@ -27,24 +27,33 @@ export function sourceIdFor(layerId: string): string {
  * Mixed or unknown geometry gets all roles with geometry-type filters so
  * each feature renders with the appropriate layer.
  *
+ * When `extrude` is set, polygon features render as a single `fill-extrusion`
+ * layer (the flat `fill`/`outline` pair is replaced); other geometries are
+ * unaffected.
+ *
  * @param category - The geometry category
+ * @param extrude - Render polygons as 3D extrusions instead of a flat fill
  * @returns The layer suffixes to create
  */
-export function suffixesForGeometry(category: GeometryCategory): GeometrySuffix[] {
+export function suffixesForGeometry(
+  category: GeometryCategory,
+  extrude = false,
+): GeometrySuffix[] {
   switch (category) {
     case 'polygon':
-      return ['fill', 'outline'];
+      return extrude ? ['extrusion'] : ['fill', 'outline'];
     case 'line':
       return ['line'];
     case 'point':
       return ['circle'];
     default:
-      return ['fill', 'outline', 'line', 'circle'];
+      return extrude ? ['extrusion', 'line', 'circle'] : ['fill', 'outline', 'line', 'circle'];
   }
 }
 
-const SUFFIX_TYPES: Record<GeometrySuffix, 'fill' | 'line' | 'circle'> = {
+const SUFFIX_TYPES: Record<GeometrySuffix, 'fill' | 'fill-extrusion' | 'line' | 'circle'> = {
   fill: 'fill',
+  extrusion: 'fill-extrusion',
   outline: 'line',
   line: 'line',
   circle: 'circle',
@@ -52,6 +61,7 @@ const SUFFIX_TYPES: Record<GeometrySuffix, 'fill' | 'line' | 'circle'> = {
 
 const SUFFIX_FILTERS: Record<GeometrySuffix, FilterSpecification> = {
   fill: ['==', ['geometry-type'], 'Polygon'],
+  extrusion: ['==', ['geometry-type'], 'Polygon'],
   outline: ['==', ['geometry-type'], 'Polygon'],
   line: ['==', ['geometry-type'], 'LineString'],
   circle: ['==', ['geometry-type'], 'Point'],
@@ -243,7 +253,7 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
   }
 
   return withLabel(
-    suffixesForGeometry(geometryType).map((suffix) =>
+    suffixesForGeometry(geometryType, style.extrusionEnabled === true).map((suffix) =>
       add(mapLayerId(layerId, suffix), {
         type: SUFFIX_TYPES[suffix],
         ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
