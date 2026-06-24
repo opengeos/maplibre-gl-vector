@@ -433,6 +433,12 @@ export class LayerManager {
     // handling is needed on that branch.
     if (this._isStructuralPointChange(record, prev, next)) {
       this._rebuildPointLayers(record);
+    } else if (this._isExtrusionToggle(record, prev, next)) {
+      // Flipping extrusion on or off swaps a polygon layer between flat fill and
+      // a fill-extrusion layer, which setPaintProperty cannot express; rebuild
+      // the map layers (the source is unchanged). The rebuild re-adds the label
+      // layer from the current style, so no separate label handling is needed.
+      this._rebuildGeometryLayers(record);
     } else {
       applyStyle(this._map, record.info, patch, record.info.opacity);
       this._applyLabelChange(record, prev, next, patch);
@@ -542,6 +548,47 @@ export class LayerManager {
       ((prev.clusterRadius ?? 50) !== (next.clusterRadius ?? 50) ||
         (prev.clusterMaxZoom ?? 14) !== (next.clusterMaxZoom ?? 14))
     );
+  }
+
+  /**
+   * Whether a style change toggles 3D extrusion on a layer with polygon
+   * geometry, which swaps the flat `fill`/`outline` layers for a single
+   * `fill-extrusion` layer (and back). Such a change is structural — the map
+   * layer types differ — so it cannot be a plain paint update. Restyle edits
+   * made while extrusion stays on (color/height/base/opacity) are paint ops.
+   */
+  private _isExtrusionToggle(
+    record: LayerRecord,
+    prev: VectorLayerStyle,
+    next: VectorLayerStyle,
+  ): boolean {
+    const geometry = record.info.geometryType;
+    if (geometry !== 'polygon' && geometry !== 'mixed' && geometry !== 'unknown') {
+      return false;
+    }
+    return (prev.extrusionEnabled === true) !== (next.extrusionEnabled === true);
+  }
+
+  /**
+   * Rebuilds a layer's map layers from the existing source, so an extrusion
+   * toggle re-creates the polygon layers (flat fill vs fill-extrusion) without
+   * re-fetching or re-adding the source. Preserves the picker.
+   */
+  private _rebuildGeometryLayers(record: LayerRecord): void {
+    this._detachPicker(record);
+    for (const id of record.info.layerIds) {
+      if (this._map.getLayer(id)) this._map.removeLayer(id);
+    }
+    record.info.layerIds = addGeometryLayers(this._map, {
+      layerId: record.info.id,
+      geometryType: record.info.geometryType,
+      style: record.info.style,
+      visible: record.info.visible,
+      opacity: record.info.opacity,
+      sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+      beforeId: record.info.beforeId,
+    });
+    this._attachPicker(record);
   }
 
   /**

@@ -73,6 +73,7 @@ export interface PaintOp {
  */
 export const LAYER_SUFFIXES = [
   'fill',
+  'extrusion',
   'outline',
   'line',
   'circle',
@@ -192,6 +193,18 @@ export function buildPaint(
         'fill-color': fillColor,
         'fill-opacity': style.fillOpacity * master,
       };
+    case 'extrusion':
+      return {
+        // Data-driven extrusion color wins over the flat one; both fall back to
+        // the fill color so an extruded layer is never left uncolored.
+        'fill-extrusion-color':
+          style.extrusionColorExpression ?? style.extrusionColor ?? fillColor,
+        'fill-extrusion-opacity': (style.extrusionOpacity ?? 1) * master,
+        // A constant or a data-driven expression (e.g. ['get', 'height']);
+        // unset means 0, which renders flat until a height is provided.
+        'fill-extrusion-height': style.extrusionHeight ?? 0,
+        'fill-extrusion-base': style.extrusionBase ?? 0,
+      };
     case 'outline':
       return {
         'line-color': lineColor,
@@ -279,6 +292,18 @@ export function stylePatchToPaintOps(
 
   push('fill', 'fill-color', fillColor);
   push('fill', 'fill-opacity', patch.fillOpacity === undefined ? undefined : patch.fillOpacity * master);
+  // Extrusion paint. Toggling extrusionEnabled itself is structural (handled by
+  // the layer manager, which rebuilds the polygon layers); these ops cover
+  // restyle edits while extrusion stays on, applied only when the layer has the
+  // 'extrusion' map layer.
+  push('extrusion', 'fill-extrusion-color', patch.extrusionColorExpression ?? patch.extrusionColor);
+  push(
+    'extrusion',
+    'fill-extrusion-opacity',
+    patch.extrusionOpacity === undefined ? undefined : patch.extrusionOpacity * master,
+  );
+  push('extrusion', 'fill-extrusion-height', patch.extrusionHeight);
+  push('extrusion', 'fill-extrusion-base', patch.extrusionBase);
   push('outline', 'line-color', lineColor);
   push('outline', 'line-width', patch.lineWidth);
   push('line', 'line-color', lineColor);
@@ -331,6 +356,7 @@ export function opacityToPaintOps(
   };
 
   push('fill', 'fill-opacity', style.fillOpacity * master);
+  push('extrusion', 'fill-extrusion-opacity', (style.extrusionOpacity ?? 1) * master);
   push('outline', 'line-opacity', master);
   push('line', 'line-opacity', master);
   push('circle', 'circle-opacity', style.circleOpacity * master);

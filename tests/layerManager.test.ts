@@ -168,6 +168,52 @@ describe('LayerManager GeoJSON path', () => {
     expect(emit).toHaveBeenCalledWith('layeradded', expect.objectContaining({ layer: expect.anything() }));
   });
 
+  it('rebuilds the polygon layers when 3D extrusion is toggled', async () => {
+    const { manager, map } = createManager();
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(info.layerIds).toEqual(['poly-fill', 'poly-outline']);
+
+    // Turning extrusion on swaps the flat fill/outline for a fill-extrusion
+    // layer (a structural change, not a paint patch). The source is untouched.
+    map.addSource.mockClear();
+    manager.setLayerStyle('poly', { extrusionEnabled: true });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-fill');
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-outline');
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-extrusion', type: 'fill-extrusion' }),
+      undefined,
+    );
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(manager.getLayers().find((l) => l.id === 'poly')?.layerIds).toEqual([
+      'poly-extrusion',
+    ]);
+
+    // Turning it back off restores the flat fill/outline pair.
+    manager.setLayerStyle('poly', { extrusionEnabled: false });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-extrusion');
+    expect(manager.getLayers().find((l) => l.id === 'poly')?.layerIds).toEqual([
+      'poly-fill',
+      'poly-outline',
+    ]);
+  });
+
+  it('treats an extrusion color/height restyle as a paint update, not a rebuild', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    manager.setLayerStyle('poly', { extrusionEnabled: true });
+    map.removeLayer.mockClear();
+    map.setPaintProperty.mockClear();
+
+    manager.setLayerStyle('poly', { extrusionColor: '#ff0000', extrusionHeight: 12 });
+    expect(map.removeLayer).not.toHaveBeenCalled();
+    expect(map.setPaintProperty).toHaveBeenCalledWith(
+      'poly-extrusion',
+      'fill-extrusion-color',
+      '#ff0000',
+    );
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-extrusion', 'fill-extrusion-height', 12);
+  });
+
   it('rejects duplicate layer ids', async () => {
     const { manager } = createManager();
     await manager.addData(POLYGON_FC, { id: 'poly' });

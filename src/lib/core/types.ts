@@ -421,6 +421,41 @@ export interface VectorLayerStyle {
    * @default false
    */
   labelAllowOverlap?: boolean;
+  /**
+   * Render polygon features as 3D extrusions (a `fill-extrusion` map layer)
+   * instead of a flat fill. Only affects polygon geometry; line and point
+   * layers ignore it. Toggling it rebuilds the layer's polygon map layers (a
+   * flat `fill`/`outline` pair becomes a single `fill-extrusion` layer and
+   * back), so the change cannot be a plain paint update.
+   * @default false
+   */
+  extrusionEnabled?: boolean;
+  /**
+   * Extrusion fill color (when `extrusionEnabled`). Falls back to `fillColor`
+   * when unset.
+   */
+  extrusionColor?: string;
+  /**
+   * Optional data-driven override for the extrusion color, taking precedence
+   * over `extrusionColor` (which remains the flat fallback).
+   */
+  extrusionColorExpression?: PropertyValueSpecification<string>;
+  /**
+   * Extrusion opacity (0-1) when `extrusionEnabled`.
+   * @default 1
+   */
+  extrusionOpacity?: number;
+  /**
+   * Extrusion height in meters: a constant, or a data-driven expression such
+   * as `['get', 'height']`. Features extrude to 0 (flat) when unset.
+   * @default 0
+   */
+  extrusionHeight?: number | PropertyValueSpecification<number>;
+  /**
+   * Extrusion base height in meters: a constant or data-driven expression.
+   * @default 0
+   */
+  extrusionBase?: number | PropertyValueSpecification<number>;
 }
 
 /**
