@@ -120,14 +120,15 @@ export interface AutoThreshold {
 /**
  * A named sample dataset offered as a one-click "Load sample data" link
  * in the panel, rendered below the URL input. Lets a host advertise
- * ready-to-load examples without prefilling the URL input (which stays
- * empty for the user's own links).
+ * examples without prefilling the URL input (which stays empty for the
+ * user's own links). Choosing a sample fills the URL input; the dataset
+ * loads only after the user clicks Load.
  */
 export interface VectorSampleDataset {
   /** Link text shown to the user (e.g. 'Countries') */
   label: string;
 
-  /** Source URL loaded when the link is clicked */
+  /** Source URL inserted into the panel's URL input when the link is clicked */
   url: string;
 
   /** Display name for the loaded layer (defaults to the file name) */
@@ -135,7 +136,8 @@ export interface VectorSampleDataset {
 
   /**
    * Ingest mode for this sample. When omitted, the panel's streaming
-   * toggle decides, matching a manual URL load.
+   * toggle decides, matching a manual URL load. Applied only when the
+   * unchanged sample URL is loaded explicitly.
    */
   ingestMode?: IngestMode;
 
@@ -258,9 +260,10 @@ export interface VectorControlOptions {
 
   /**
    * Optional sample datasets offered as one-click "Load sample data"
-   * links below the URL input. Clicking a link loads that dataset
-   * directly. Omit or leave empty to hide the row entirely, keeping the
-   * URL input clean for the user's own links.
+   * links below the URL input. Clicking a link fills the URL input; the
+   * user must click Load to fetch the dataset. Omit or leave empty to
+   * hide the row entirely, keeping the URL input clean for the user's own
+   * links.
    */
   sampleData?: VectorSampleDataset[];
 

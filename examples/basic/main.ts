@@ -37,8 +37,8 @@ map.on('load', () => {
     closeOnOutsideClick: false,
     // Let the panel be dragged larger from its bottom corners.
     resizable: true,
-    // Sample datasets are offered as one-click links inside the panel
-    // (below the URL input), so the input stays empty for custom links.
+    // Sample datasets are offered inside the panel (below the URL input).
+    // Choosing one fills the URL; the user still clicks Load to ingest it.
     sampleData: [
       { label: 'GeoParquet', url: SAMPLES.geoparquet, name: 'Countries' },
       { label: 'GeoPackage', url: SAMPLES.geopackage, name: 'US regions' },

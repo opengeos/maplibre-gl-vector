@@ -99,6 +99,10 @@ describe('renderPanelUI sample data', () => {
     container.querySelector<HTMLDivElement>('.vector-control-sample-menu')!;
   const optionButtons = (container: HTMLElement) =>
     Array.from(container.querySelectorAll<HTMLButtonElement>('.vector-control-sample-option'));
+  const loadButton = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Load',
+    )!;
 
   /** Open the dropdown and click the option at `index`. */
   function pickSample(container: HTMLElement, index: number): void {
@@ -178,7 +182,7 @@ describe('renderPanelUI sample data', () => {
     dispose();
   });
 
-  it('fills the URL input, loads, and closes the menu when an option is picked', () => {
+  it('fills the URL input and closes the menu when an option is picked', () => {
     const container = document.createElement('div');
     const host = createFakeHost();
     host.addData = vi.fn(async () => ({}) as never);
@@ -193,6 +197,23 @@ describe('renderPanelUI sample data', () => {
     const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
     expect(input.value).toBe('https://example.com/countries.parquet');
     expect(menu(container).hidden).toBe(true);
+    expect(host.addData).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it('loads a picked sample only when Load is clicked', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [{ label: 'Countries', url: 'https://example.com/countries.parquet' }],
+    });
+
+    pickSample(container, 0);
+    loadButton(container).click();
+
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',
       { ingestMode: 'table' },
@@ -237,6 +258,7 @@ describe('renderPanelUI sample data', () => {
     });
 
     pickSample(container, 0);
+    loadButton(container).click();
 
     expect(host.addData).toHaveBeenCalledExactlyOnceWith('https://example.com/counties.parquet', {
       ingestMode: 'table',
@@ -259,11 +281,41 @@ describe('renderPanelUI sample data', () => {
     });
 
     pickSample(container, 0);
+    loadButton(container).click();
 
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',
       { ingestMode: 'stream' },
     );
+    dispose();
+  });
+
+  it('treats an edited sample URL as a normal manual URL load', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({
+      container,
+      control: host,
+      sampleData: [
+        {
+          label: 'Counties',
+          url: 'https://example.com/counties.parquet',
+          name: 'US counties',
+          renderMode: 'tiles',
+        },
+      ],
+    });
+
+    pickSample(container, 0);
+    const input = container.querySelector<HTMLInputElement>('input[type=url]')!;
+    input.value = 'https://example.com/other.parquet';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    loadButton(container).click();
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith('https://example.com/other.parquet', {
+      ingestMode: 'table',
+    });
     dispose();
   });
 });
