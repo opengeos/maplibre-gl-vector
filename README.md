@@ -268,7 +268,7 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `autoLoad` | `boolean` | `false` | Load `defaultUrl` automatically when the control is added to the map |
 | `closeOnOutsideClick` | `boolean` | `true` | Collapse the panel when clicking outside it; set `false` to close only via the header button |
 | `resizable` | `boolean` | `false` | Show bottom-left and bottom-right drag handles so the panel can be resized |
-| `sampleData` | `VectorSampleDataset[]` | - | Sample datasets shown as a "Load sample data" dropdown below the URL input; picking one fills the input and loads it (hidden when empty) |
+| `sampleData` | `VectorSampleDataset[]` | - | Sample datasets shown as a "Load sample data" dropdown below the URL input; picking one fills the input and waits for the user to click Load (hidden when empty) |
 | `sampleDataLabel` | `string` | `'Load sample data...'` | Placeholder shown in the sample-data dropdown |
 | `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
 | `fileOpener` | `() => VectorFileSelection[] \| null \| Promise<...>` | - | Replace the panel's built-in file browse with a host picker. Each returned selection's `sourcePath` is echoed on the layer's `source` so a desktop host can persist and re-read local files (see [Restorable local files](#restorable-local-files)) |

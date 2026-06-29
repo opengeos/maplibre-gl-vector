@@ -72,6 +72,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const { container, control, fileOpener } = options;
   const expandedEditors = new Set<string>();
   let styleEditInProgress = false;
+  let selectedSample: VectorSampleDataset | null = null;
 
   container.innerHTML = '';
 
@@ -127,9 +128,12 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   const loadUrl = () => {
     const url = urlInput.value.trim();
     if (!url) return;
-    void control.addData(url, loadOptions()).then(
+    const loadSample =
+      selectedSample && selectedSample.url === url ? selectedSample : null;
+    void control.addData(url, loadSample ? sampleLoadOptions(loadSample) : loadOptions()).then(
       () => {
         urlInput.value = '';
+        selectedSample = null;
       },
       () => {
         // Error already surfaced through the 'error' event.
@@ -140,6 +144,11 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loadUrl();
   });
+  urlInput.addEventListener('input', () => {
+    if (selectedSample && urlInput.value.trim() !== selectedSample.url) {
+      selectedSample = null;
+    }
+  });
   urlRow.appendChild(urlInput);
   urlRow.appendChild(urlButton);
 
@@ -147,7 +156,8 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   // A custom (not native <select>) dropdown so the menu is fully themeable
   // in dark mode -- the native option popup keeps a low-contrast system
   // highlight. Decoupled from the URL input so it stays empty for the
-  // user's own links; picking one fills the input and loads it. Hidden
+  // user's own links; picking one fills the input, leaving loading to the
+  // explicit Load button. Hidden
   // entirely when no host supplies samples.
   const samples = options.sampleData ?? [];
   const sampleRow = el('div', 'vector-control-sample-row');
@@ -185,18 +195,9 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
       option.addEventListener('click', () => {
         setMenuOpen(false);
         trigger.focus();
-        // Show the user which URL is loading, then load it.
+        // Show the user which URL will load when they explicitly confirm.
         urlInput.value = sample.url;
-        // A per-sample ingestMode wins; otherwise fall through to the
-        // streaming toggle so the sample behaves like a manual load.
-        const sampleOptions: VectorLayerOptions = sample.ingestMode
-          ? { ingestMode: sample.ingestMode }
-          : loadOptions();
-        if (sample.name) sampleOptions.name = sample.name;
-        if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
-        void control.addData(sample.url, sampleOptions).catch(() => {
-          // Error already surfaced through the 'error' event.
-        });
+        selectedSample = sample;
       });
       menu.appendChild(option);
     }
@@ -325,6 +326,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
     // Explicit 'table' when unchecked, so the toggle wins over a
     // control-level defaultIngestMode of 'stream'.
     return { ingestMode: streamInput.checked ? 'stream' : 'table' };
+  }
+
+  function sampleLoadOptions(sample: VectorSampleDataset): VectorLayerOptions {
+    const sampleOptions: VectorLayerOptions = sample.ingestMode
+      ? { ingestMode: sample.ingestMode }
+      : loadOptions();
+    if (sample.name) sampleOptions.name = sample.name;
+    if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
+    return sampleOptions;
   }
 
   function loadFiles(files: FileList): void {
