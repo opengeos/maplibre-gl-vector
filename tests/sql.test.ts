@@ -116,6 +116,21 @@ describe('detectGeometryColumn', () => {
       name: 'geometry',
       encoding: 'base64-wkb',
       requiresBase64WkbValidation: true,
+      base64WkbCandidates: ['geometry'],
+    });
+  });
+
+  it('ranks multiple base64 string WKB candidates by well-known name', () => {
+    expect(
+      detectGeometryColumn([
+        { name: 'wkb', type: 'VARCHAR' },
+        { name: 'geometry', type: 'VARCHAR' },
+      ]),
+    ).toEqual({
+      name: 'geometry',
+      encoding: 'base64-wkb',
+      requiresBase64WkbValidation: true,
+      base64WkbCandidates: ['geometry', 'wkb'],
     });
   });
 });

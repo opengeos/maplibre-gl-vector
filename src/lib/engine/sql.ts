@@ -87,6 +87,7 @@ export interface DetectedGeometryColumn {
   name: string;
   encoding: GeometryEncoding;
   requiresBase64WkbValidation?: boolean;
+  base64WkbCandidates?: string[];
 }
 
 const WKB_GEOMETRY_COLUMN_NAMES = [
@@ -127,14 +128,15 @@ export function detectGeometryColumn(
   );
   if (binaryWkb) return { name: binaryWkb.name, encoding: 'wkb' };
 
-  const base64Wkb = sortedWkbCandidates.find((column) =>
-    /^(VARCHAR|TEXT|STRING)/i.test(column.type),
-  );
-  if (base64Wkb) {
+  const base64WkbCandidates = sortedWkbCandidates
+    .filter((column) => /^(VARCHAR|TEXT|STRING)/i.test(column.type))
+    .map((column) => column.name);
+  if (base64WkbCandidates.length > 0) {
     return {
-      name: base64Wkb.name,
+      name: base64WkbCandidates[0],
       encoding: 'base64-wkb',
       requiresBase64WkbValidation: true,
+      base64WkbCandidates,
     };
   }
   return undefined;

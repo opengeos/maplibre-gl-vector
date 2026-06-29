@@ -516,11 +516,20 @@ export class DuckDBEngine implements IEngine {
   ): Promise<DetectedGeometryColumn | undefined> {
     const geometryColumn = detectGeometryColumn(columns);
     if (!geometryColumn?.requiresBase64WkbValidation) return geometryColumn;
-    if (!(await this._hasValidBase64WkbValues(reader, geometryColumn.name))) {
-      return undefined;
+    const candidates = geometryColumn.base64WkbCandidates?.length
+      ? geometryColumn.base64WkbCandidates
+      : [geometryColumn.name];
+    for (const name of candidates) {
+      if (await this._hasValidBase64WkbValues(reader, name)) {
+        const {
+          requiresBase64WkbValidation: _validated,
+          base64WkbCandidates: _candidates,
+          ...validated
+        } = geometryColumn;
+        return { ...validated, name };
+      }
     }
-    const { requiresBase64WkbValidation: _validated, ...validated } = geometryColumn;
-    return validated;
+    return undefined;
   }
 
   private async _hasValidBase64WkbValues(reader: string, column: string): Promise<boolean> {
