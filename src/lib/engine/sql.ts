@@ -86,6 +86,7 @@ export interface ReaderColumnInfo {
 export interface DetectedGeometryColumn {
   name: string;
   encoding: GeometryEncoding;
+  requiresBase64WkbValidation?: boolean;
 }
 
 const WKB_GEOMETRY_COLUMN_NAMES = [
@@ -105,7 +106,9 @@ function wkbNameRank(name: string): number {
 /**
  * Finds the geometry column produced by a reader. Native DuckDB GEOMETRY
  * columns win; plain Parquet fallbacks may carry WKB as bytes or as a
- * base64-encoded string in a well-known geometry column.
+ * base64-encoded string in a well-known geometry column. String candidates
+ * must be value-probed before SQL generation because geometry-like names are
+ * sometimes ordinary attributes.
  *
  * @param columns - Column names and types from DESCRIBE
  * @returns Detected geometry column, if one is recognizable
@@ -127,7 +130,13 @@ export function detectGeometryColumn(
   const base64Wkb = sortedWkbCandidates.find((column) =>
     /^(VARCHAR|TEXT|STRING)/i.test(column.type),
   );
-  if (base64Wkb) return { name: base64Wkb.name, encoding: 'base64-wkb' };
+  if (base64Wkb) {
+    return {
+      name: base64Wkb.name,
+      encoding: 'base64-wkb',
+      requiresBase64WkbValidation: true,
+    };
+  }
   return undefined;
 }
 
@@ -153,6 +162,9 @@ export function createTableSql(
 }
 
 function wkbGeometryExpression(geometry: DetectedGeometryColumn): string {
+  if (geometry.requiresBase64WkbValidation) {
+    throw new Error('Base64 WKB geometry candidates must be validated before SQL generation.');
+  }
   const column = quoteIdent(geometry.name);
   const wkb = geometry.encoding === 'base64-wkb' ? `from_base64(${column})` : column;
   return `ST_GeomFromWKB(${wkb})`;

@@ -30,6 +30,7 @@ import {
   sampledGeometryTypesQuery,
   summaryQuery,
   tileFeaturesQuery,
+  type DetectedGeometryColumn,
 } from './sql';
 import { registerLooseShapefile, registerZippedShapefile } from '../formats/shapefile';
 
@@ -130,6 +131,13 @@ function sanitizeValue(value: any): unknown {
     default:
       return String(value);
   }
+}
+
+function numberFromCount(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string') return Number(value);
+  return 0;
 }
 
 /**
@@ -452,7 +460,7 @@ export class DuckDBEngine implements IEngine {
     const reader = readerFor(options.format, gdalPath(options.format, path), options.sourceLayer);
     const columns = await this._describeReader(reader);
 
-    const geometryColumn = detectGeometryColumn(columns);
+    const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
       await this._loaded.conn.query(createTableFromGeometrySql(tableName, reader, geometryColumn));
       return;
@@ -495,11 +503,39 @@ export class DuckDBEngine implements IEngine {
   ): Promise<void> {
     const reader = readerFor(options.format, path, options.sourceLayer);
     const columns = await this._describeReader(reader);
-    const geometryColumn = detectGeometryColumn(columns);
+    const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (!geometryColumn) {
       throw new Error('No geometry column found in GeoParquet source');
     }
     await this._loaded.conn.query(createViewFromGeometrySql(tableName, reader, geometryColumn));
+  }
+
+  private async _detectGeometryColumn(
+    reader: string,
+    columns: ColumnInfo[],
+  ): Promise<DetectedGeometryColumn | undefined> {
+    const geometryColumn = detectGeometryColumn(columns);
+    if (!geometryColumn?.requiresBase64WkbValidation) return geometryColumn;
+    if (!(await this._hasValidBase64WkbValues(reader, geometryColumn.name))) {
+      return undefined;
+    }
+    const { requiresBase64WkbValidation: _validated, ...validated } = geometryColumn;
+    return validated;
+  }
+
+  private async _hasValidBase64WkbValues(reader: string, column: string): Promise<boolean> {
+    const columnSql = quoteIdent(column);
+    const sampleColumn = quoteIdent('__maplibre_gl_vector_base64_wkb_sample');
+    const result = await this._loaded.conn.query(
+      `SELECT count(*) AS sample_count, ` +
+        `count(TRY(ST_GeomFromWKB(from_base64(${sampleColumn})))) AS valid_count ` +
+        `FROM (SELECT ${columnSql} AS ${sampleColumn} FROM ${reader} ` +
+        `WHERE ${columnSql} IS NOT NULL LIMIT 20) AS sample`,
+    );
+    const row = result.toArray()[0] ?? {};
+    const sampleCount = numberFromCount(row.sample_count);
+    const validCount = numberFromCount(row.valid_count);
+    return sampleCount > 0 && sampleCount === validCount;
   }
 
   /**

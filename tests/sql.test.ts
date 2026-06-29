@@ -106,13 +106,17 @@ describe('detectGeometryColumn', () => {
     ).toEqual({ name: 'geometry', encoding: 'wkb' });
   });
 
-  it('detects base64 string WKB columns by well-known names', () => {
+  it('marks base64 string WKB columns by well-known names as candidates', () => {
     expect(
       detectGeometryColumn([
         { name: 'id', type: 'VARCHAR' },
         { name: 'geometry', type: 'VARCHAR' },
       ]),
-    ).toEqual({ name: 'geometry', encoding: 'base64-wkb' });
+    ).toEqual({
+      name: 'geometry',
+      encoding: 'base64-wkb',
+      requiresBase64WkbValidation: true,
+    });
   });
 });
 
@@ -135,6 +139,16 @@ describe('createTableFromGeometrySql', () => {
     expect(sql).toBe(
       'CREATE OR REPLACE TABLE "t1" AS SELECT * EXCLUDE ("geometry"), ST_GeomFromWKB(from_base64("geometry")) AS geom FROM read_parquet(\'f.parquet\')',
     );
+  });
+
+  it('rejects unvalidated base64 WKB candidates', () => {
+    expect(() =>
+      createTableFromGeometrySql('t1', "read_parquet('f.parquet')", {
+        name: 'geometry',
+        encoding: 'base64-wkb',
+        requiresBase64WkbValidation: true,
+      }),
+    ).toThrow(/must be validated/);
   });
 });
 
