@@ -76,6 +76,61 @@ export function columnsQueryFromDescribe(relation: string): string {
   return `DESCRIBE SELECT * FROM ${relation}`;
 }
 
+export type GeometryEncoding = 'geometry' | 'wkb' | 'base64-wkb';
+
+export interface ReaderColumnInfo {
+  name: string;
+  type: string;
+}
+
+export interface DetectedGeometryColumn {
+  name: string;
+  encoding: GeometryEncoding;
+}
+
+const WKB_GEOMETRY_COLUMN_NAMES = [
+  'geometry',
+  'geom',
+  'wkb_geometry',
+  'geometry_wkb',
+  'geom_wkb',
+  'wkb',
+];
+
+function wkbNameRank(name: string): number {
+  const rank = WKB_GEOMETRY_COLUMN_NAMES.indexOf(name.toLowerCase());
+  return rank === -1 ? Number.MAX_SAFE_INTEGER : rank;
+}
+
+/**
+ * Finds the geometry column produced by a reader. Native DuckDB GEOMETRY
+ * columns win; plain Parquet fallbacks may carry WKB as bytes or as a
+ * base64-encoded string in a well-known geometry column.
+ *
+ * @param columns - Column names and types from DESCRIBE
+ * @returns Detected geometry column, if one is recognizable
+ */
+export function detectGeometryColumn(
+  columns: ReaderColumnInfo[],
+): DetectedGeometryColumn | undefined {
+  const native = columns.find((column) => column.type.toUpperCase().startsWith('GEOMETRY'));
+  if (native) return { name: native.name, encoding: 'geometry' };
+
+  const sortedWkbCandidates = columns
+    .filter((column) => wkbNameRank(column.name) !== Number.MAX_SAFE_INTEGER)
+    .sort((a, b) => wkbNameRank(a.name) - wkbNameRank(b.name));
+  const binaryWkb = sortedWkbCandidates.find((column) =>
+    /^(BLOB|BINARY|VARBINARY)/i.test(column.type),
+  );
+  if (binaryWkb) return { name: binaryWkb.name, encoding: 'wkb' };
+
+  const base64Wkb = sortedWkbCandidates.find((column) =>
+    /^(VARCHAR|TEXT|STRING)/i.test(column.type),
+  );
+  if (base64Wkb) return { name: base64Wkb.name, encoding: 'base64-wkb' };
+  return undefined;
+}
+
 /**
  * SQL creating the ingest table from a reader, normalizing the geometry
  * column to `geom`.
@@ -95,6 +150,47 @@ export function createTableSql(
       ? ''
       : ` RENAME (${quoteIdent(geometryColumn)} AS geom)`;
   return `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS SELECT *${rename} FROM ${reader}`;
+}
+
+function wkbGeometryExpression(geometry: DetectedGeometryColumn): string {
+  const column = quoteIdent(geometry.name);
+  const wkb = geometry.encoding === 'base64-wkb' ? `from_base64(${column})` : column;
+  return `ST_GeomFromWKB(${wkb})`;
+}
+
+function createRelationFromGeometrySql(
+  relationKind: 'TABLE' | 'VIEW',
+  tableName: string,
+  reader: string,
+  geometry: DetectedGeometryColumn,
+): string {
+  if (geometry.encoding === 'geometry') {
+    return relationKind === 'TABLE'
+      ? createTableSql(tableName, reader, geometry.name)
+      : createViewSql(tableName, reader, geometry.name);
+  }
+  const geometryColumn = quoteIdent(geometry.name);
+  return (
+    `CREATE OR REPLACE ${relationKind} ${quoteIdent(tableName)} AS ` +
+    `SELECT * EXCLUDE (${geometryColumn}), ${wkbGeometryExpression(geometry)} AS geom ` +
+    `FROM ${reader}`
+  );
+}
+
+/**
+ * SQL creating the ingest table from a reader with a detected geometry column.
+ *
+ * @param tableName - The table to create
+ * @param reader - Reader expression from {@link readerFor}
+ * @param geometry - Detected geometry column and encoding
+ * @returns The statement text
+ */
+export function createTableFromGeometrySql(
+  tableName: string,
+  reader: string,
+  geometry: DetectedGeometryColumn,
+): string {
+  return createRelationFromGeometrySql('TABLE', tableName, reader, geometry);
 }
 
 /**
@@ -159,6 +255,22 @@ export function createViewSql(
   const rename =
     geometryColumn === 'geom' ? '' : ` RENAME (${quoteIdent(geometryColumn)} AS geom)`;
   return `CREATE OR REPLACE VIEW ${quoteIdent(tableName)} AS SELECT *${rename} FROM ${reader}`;
+}
+
+/**
+ * SQL creating a streaming view from a reader with a detected geometry column.
+ *
+ * @param tableName - The view to create
+ * @param reader - Reader expression from {@link readerFor}
+ * @param geometry - Detected geometry column and encoding
+ * @returns The statement text
+ */
+export function createViewFromGeometrySql(
+  tableName: string,
+  reader: string,
+  geometry: DetectedGeometryColumn,
+): string {
+  return createRelationFromGeometrySql('VIEW', tableName, reader, geometry);
 }
 
 /**
