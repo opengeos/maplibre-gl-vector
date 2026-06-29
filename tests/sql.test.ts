@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   TILE_FEATURE_LIMIT,
   bboxSummaryQuery,
+  createTableFromGeometrySql,
   createViewSql,
+  createViewFromGeometrySql,
+  detectGeometryColumn,
   isBboxCoveringColumn,
   mvtTileStreamQuery,
   sampledGeometryTypesQuery,
@@ -84,6 +87,57 @@ describe('createTableSql', () => {
   });
 });
 
+describe('detectGeometryColumn', () => {
+  it('prefers a native geometry column', () => {
+    expect(
+      detectGeometryColumn([
+        { name: 'geometry', type: 'VARCHAR' },
+        { name: 'geom', type: 'GEOMETRY' },
+      ]),
+    ).toEqual({ name: 'geom', encoding: 'geometry' });
+  });
+
+  it('detects binary WKB columns by well-known names', () => {
+    expect(
+      detectGeometryColumn([
+        { name: 'wkb', type: 'BLOB' },
+        { name: 'geometry', type: 'BLOB' },
+      ]),
+    ).toEqual({ name: 'geometry', encoding: 'wkb' });
+  });
+
+  it('detects base64 string WKB columns by well-known names', () => {
+    expect(
+      detectGeometryColumn([
+        { name: 'id', type: 'VARCHAR' },
+        { name: 'geometry', type: 'VARCHAR' },
+      ]),
+    ).toEqual({ name: 'geometry', encoding: 'base64-wkb' });
+  });
+});
+
+describe('createTableFromGeometrySql', () => {
+  it('decodes binary WKB into geom', () => {
+    const sql = createTableFromGeometrySql('t1', "read_parquet('f.parquet')", {
+      name: 'geometry',
+      encoding: 'wkb',
+    });
+    expect(sql).toBe(
+      'CREATE OR REPLACE TABLE "t1" AS SELECT * EXCLUDE ("geometry"), ST_GeomFromWKB("geometry") AS geom FROM read_parquet(\'f.parquet\')',
+    );
+  });
+
+  it('decodes base64 WKB into geom', () => {
+    const sql = createTableFromGeometrySql('t1', "read_parquet('f.parquet')", {
+      name: 'geometry',
+      encoding: 'base64-wkb',
+    });
+    expect(sql).toBe(
+      'CREATE OR REPLACE TABLE "t1" AS SELECT * EXCLUDE ("geometry"), ST_GeomFromWKB(from_base64("geometry")) AS geom FROM read_parquet(\'f.parquet\')',
+    );
+  });
+});
+
 describe('CSV table creation', () => {
   it('builds geometry from a WKT column', () => {
     const sql = createTableFromWktSql('t1', "read_csv('f.csv')", 'wkt');
@@ -157,6 +211,17 @@ describe('streaming ingest SQL', () => {
   it('creates a view with the geometry column normalized', () => {
     expect(createViewSql('t1', "read_parquet('f.parquet')", 'geometry')).toBe(
       'CREATE OR REPLACE VIEW "t1" AS SELECT * RENAME ("geometry" AS geom) FROM read_parquet(\'f.parquet\')',
+    );
+  });
+
+  it('creates a streaming view from base64 WKB geometry', () => {
+    expect(
+      createViewFromGeometrySql('t1', "read_parquet('f.parquet')", {
+        name: 'geometry',
+        encoding: 'base64-wkb',
+      }),
+    ).toBe(
+      'CREATE OR REPLACE VIEW "t1" AS SELECT * EXCLUDE ("geometry"), ST_GeomFromWKB(from_base64("geometry")) AS geom FROM read_parquet(\'f.parquet\')',
     );
   });
 

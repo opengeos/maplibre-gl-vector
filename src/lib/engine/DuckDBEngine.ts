@@ -14,8 +14,9 @@ import {
   columnsQueryFromDescribe,
   createTableFromLonLatSql,
   createTableFromWktSql,
-  createTableSql,
-  createViewSql,
+  createTableFromGeometrySql,
+  createViewFromGeometrySql,
+  detectGeometryColumn,
   exportGeoJSONQuery,
   gdalPath,
   geometryTypesQuery,
@@ -451,9 +452,9 @@ export class DuckDBEngine implements IEngine {
     const reader = readerFor(options.format, gdalPath(options.format, path), options.sourceLayer);
     const columns = await this._describeReader(reader);
 
-    const geometryColumn = columns.find((c) => c.type === 'GEOMETRY')?.name;
+    const geometryColumn = detectGeometryColumn(columns);
     if (geometryColumn) {
-      await this._loaded.conn.query(createTableSql(tableName, reader, geometryColumn));
+      await this._loaded.conn.query(createTableFromGeometrySql(tableName, reader, geometryColumn));
       return;
     }
 
@@ -494,11 +495,11 @@ export class DuckDBEngine implements IEngine {
   ): Promise<void> {
     const reader = readerFor(options.format, path, options.sourceLayer);
     const columns = await this._describeReader(reader);
-    const geometryColumn = columns.find((c) => c.type === 'GEOMETRY')?.name;
+    const geometryColumn = detectGeometryColumn(columns);
     if (!geometryColumn) {
       throw new Error('No geometry column found in GeoParquet source');
     }
-    await this._loaded.conn.query(createViewSql(tableName, reader, geometryColumn));
+    await this._loaded.conn.query(createViewFromGeometrySql(tableName, reader, geometryColumn));
   }
 
   /**
