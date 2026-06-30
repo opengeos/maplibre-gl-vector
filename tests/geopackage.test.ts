@@ -32,6 +32,23 @@ function wkbPoint(x: number, y: number): Uint8Array {
   return new Uint8Array(buffer);
 }
 
+/** Little-endian WKB for a single-ring 2D Polygon. */
+function wkbPolygon(ring: Array<[number, number]>): Uint8Array {
+  const buffer = new ArrayBuffer(9 + 4 + ring.length * 16);
+  const view = new DataView(buffer);
+  view.setUint8(0, 1); // little-endian
+  view.setUint32(1, 3, true); // type = Polygon
+  view.setUint32(5, 1, true); // ring count
+  view.setUint32(9, ring.length, true); // point count
+  let offset = 13;
+  for (const [x, y] of ring) {
+    view.setFloat64(offset, x, true);
+    view.setFloat64(offset + 8, y, true);
+    offset += 16;
+  }
+  return new Uint8Array(buffer);
+}
+
 /** Wraps WKB in a minimal GeoPackage geometry blob header (no envelope). */
 function gpkgBlob(wkb: Uint8Array, srsId: number): Uint8Array {
   const header = new Uint8Array(8);
@@ -45,6 +62,37 @@ function gpkgBlob(wkb: Uint8Array, srsId: number): Uint8Array {
   blob.set(header, 0);
   blob.set(wkb, header.length);
   return blob;
+}
+
+/** Builds a single-table GeoPackage from explicit (geomBlob, name) rows. */
+function buildGpkgWithRows(
+  rows: Array<{ geom: Uint8Array | null; name: string }>,
+): Uint8Array {
+  const db = new SQL.Database();
+  db.run(`
+    CREATE TABLE gpkg_contents (
+      table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, srs_id INTEGER
+    );
+    CREATE TABLE gpkg_geometry_columns (
+      table_name TEXT NOT NULL, column_name TEXT NOT NULL, srs_id INTEGER
+    );
+    CREATE TABLE "places" (fid INTEGER PRIMARY KEY, geom BLOB, name TEXT);
+  `);
+  db.run(
+    "INSERT INTO gpkg_contents (table_name, data_type, srs_id) VALUES ('places', 'features', 4326)",
+  );
+  db.run(
+    "INSERT INTO gpkg_geometry_columns (table_name, column_name, srs_id) VALUES ('places', 'geom', 4326)",
+  );
+  for (const row of rows) {
+    db.run('INSERT INTO "places" (geom, name) VALUES (:g, :n)', {
+      ":g": row.geom,
+      ":n": row.name,
+    });
+  }
+  const bytes = db.export() as Uint8Array;
+  db.close();
+  return bytes;
 }
 
 interface BuildOptions {
@@ -125,6 +173,19 @@ describe("stripGeoPackageHeader", () => {
     expect(stripGeoPackageHeader(wkb)).toBe(wkb);
   });
 
+  it("skips a 32-byte XY envelope (indicator 1)", () => {
+    const wkb = wkbPoint(3, 4);
+    const blob = gpkgBlob(wkb, 4326);
+    blob[3] = 0b00000011; // flags: little-endian header, envelope indicator 1
+    const withEnvelope = new Uint8Array(blob.length + 32);
+    withEnvelope.set(blob.subarray(0, 8), 0);
+    // bytes 8..40 are the (zeroed) XY envelope; the WKB follows it.
+    withEnvelope.set(wkb, 40);
+    expect(Array.from(stripGeoPackageHeader(withEnvelope))).toEqual(
+      Array.from(wkb),
+    );
+  });
+
   it("throws on a reserved envelope indicator", () => {
     const blob = gpkgBlob(wkbPoint(0, 0), 4326);
     blob[3] = 0b00001110; // envelope indicator 7 (reserved)
@@ -139,6 +200,39 @@ describe("decodeWkb", () => {
     expect(decodeWkb(wkbPoint(10, 20))).toEqual({
       type: "Point",
       coordinates: [10, 20],
+    });
+  });
+
+  it("decodes a Polygon", () => {
+    const ring: Array<[number, number]> = [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 0],
+    ];
+    expect(decodeWkb(wkbPolygon(ring))).toEqual({
+      type: "Polygon",
+      coordinates: [ring],
+    });
+  });
+
+  it("decodes a MultiPolygon", () => {
+    const ring: Array<[number, number]> = [
+      [0, 0],
+      [2, 0],
+      [2, 2],
+      [0, 0],
+    ];
+    const polygon = wkbPolygon(ring);
+    const buffer = new Uint8Array(9 + polygon.length);
+    const view = new DataView(buffer.buffer);
+    view.setUint8(0, 1); // little-endian
+    view.setUint32(1, 6, true); // type = MultiPolygon
+    view.setUint32(5, 1, true); // polygon count
+    buffer.set(polygon, 9);
+    expect(decodeWkb(buffer)).toEqual({
+      type: "MultiPolygon",
+      coordinates: [[ring]],
     });
   });
 
@@ -160,6 +254,16 @@ describe("isLikelyGeoPackage", () => {
 
   it("rejects a non-SQLite buffer", () => {
     expect(isLikelyGeoPackage(new TextEncoder().encode("nope"))).toBe(false);
+  });
+
+  it("accepts a plain SQLite database (best-effort SQLite-magic check)", () => {
+    // Only the SQLite magic is inspected, so a non-GeoPackage SQLite file also
+    // passes; it then surfaces "no feature layer" when read, not a hang.
+    const db = new SQL.Database();
+    db.run("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
+    const bytes = db.export() as Uint8Array;
+    db.close();
+    expect(isLikelyGeoPackage(bytes)).toBe(true);
   });
 });
 
@@ -200,6 +304,39 @@ describe("readGeoPackageSync", () => {
     expect(() => readGeoPackageSync(SQL, buildGpkg(), "missing")).toThrow(
       /no feature layer named/,
     );
+  });
+
+  it("skips an undecodable geometry without failing the whole read", () => {
+    // A blob with the "GP" magic but a curved-type WKB body throws in decode;
+    // the feature must survive with a null geometry and the rest still load.
+    const curved = new Uint8Array(5);
+    new DataView(curved.buffer).setUint32(1, 8, true); // CircularString
+    curved[0] = 1;
+    const bytes = buildGpkgWithRows([
+      { geom: gpkgBlob(wkbPoint(1, 2), 4326), name: "good" },
+      { geom: gpkgBlob(curved, 4326), name: "bad" },
+    ]);
+    const { featureCollection } = readGeoPackageSync(SQL, bytes);
+    expect(featureCollection.features).toHaveLength(2);
+    const byName = new Map(
+      featureCollection.features.map((f) => [f.properties?.name, f.geometry]),
+    );
+    expect(byName.get("good")).toEqual({ type: "Point", coordinates: [1, 2] });
+    expect(byName.get("bad")).toBeNull();
+  });
+
+  it("yields a null geometry for an empty-flagged blob and a null blob", () => {
+    const empty = gpkgBlob(wkbPoint(0, 0), 4326);
+    empty[3] |= 0x10; // set the empty-geometry flag
+    const bytes = buildGpkgWithRows([
+      { geom: empty, name: "empty" },
+      { geom: null, name: "null" },
+    ]);
+    const { featureCollection } = readGeoPackageSync(SQL, bytes);
+    expect(featureCollection.features.map((f) => f.geometry)).toEqual([
+      null,
+      null,
+    ]);
   });
 });
 

@@ -131,7 +131,11 @@ function sanitizeValue(value: any): unknown {
       try {
         return JSON.parse(
           JSON.stringify(value, (_key, v) =>
-            typeof v === "bigint" ? Number(v) : v,
+            typeof v === "bigint"
+              ? Number.isSafeInteger(Number(v))
+                ? Number(v)
+                : v.toString()
+              : v,
           ),
         );
       } catch {

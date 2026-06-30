@@ -86,6 +86,26 @@ export function stripGeoPackageHeader(blob: Uint8Array): Uint8Array {
 }
 
 /**
+ * Whether a GeoPackage geometry blob is flagged empty (header flags bit 0x10).
+ *
+ * The WKB body of an empty geometry is still well-formed but represents "no
+ * geometry" (an empty Point even carries NaN coordinates), so the flag is
+ * honoured to emit a null GeoJSON geometry rather than decoding bogus
+ * coordinates. A bare-WKB blob (no "GP" magic) has no flag and is never empty.
+ *
+ * @param blob - The raw GeoPackage geometry blob.
+ * @returns True when the blob's empty-geometry flag is set.
+ */
+export function isGeoPackageEmptyGeometry(blob: Uint8Array): boolean {
+  return (
+    blob.length >= 4 &&
+    blob[0] === 0x47 &&
+    blob[1] === 0x50 &&
+    (blob[3] & 0x10) !== 0
+  );
+}
+
+/**
  * Decodes a standalone WKB (Well-Known Binary) buffer into a GeoJSON geometry.
  *
  * Handles mixed byte order, ISO WKB dimensionality (Z/M, where the type code is
@@ -305,10 +325,16 @@ function resolveEpsgCode(
   if (!row) return null;
   const organization = String(row[0] ?? "").toUpperCase();
   const code = row[1] == null ? null : Number(row[1]);
-  // A non-numeric organization_coordsys_id yields NaN, which is not null; guard
-  // it so a malformed row is treated as "no reprojection" instead of tagging the
-  // collection "EPSG:NaN" (which silently fails to reproject and misrenders).
-  if (organization !== "EPSG" || code == null || !Number.isFinite(code)) {
+  // A malformed organization_coordsys_id (non-numeric -> NaN, or a non-positive
+  // value) is treated as "no reprojection" rather than tagging the collection
+  // with an invalid "EPSG:<code>" that silently fails to reproject and
+  // misrenders. EPSG codes are positive integers.
+  if (
+    organization !== "EPSG" ||
+    code == null ||
+    !Number.isInteger(code) ||
+    code <= 0
+  ) {
     return null;
   }
   return WGS84_EPSG_CODES.has(code) ? null : code;
@@ -323,7 +349,13 @@ function readLayerFeatures(
   const features: Feature<Geometry | null>[] = [];
   if (result.length > 0) {
     const columns = result[0].columns;
-    const geometryIndex = columns.indexOf(layer.geometryColumn);
+    // Match case-insensitively: SQLite column names are case-insensitive, so the
+    // name in gpkg_geometry_columns can differ in case from SELECT *'s columns
+    // (the selectLayers join already tolerates this for table names).
+    const geometryName = layer.geometryColumn.toLowerCase();
+    const geometryIndex = columns.findIndex(
+      (column) => column.toLowerCase() === geometryName,
+    );
     // The geometry column is declared in gpkg_geometry_columns; if SELECT * does
     // not return it, the file is inconsistent. Fail loudly rather than emit every
     // feature with a silent null geometry.
@@ -351,8 +383,11 @@ function readLayerFeatures(
       if (rawGeometry instanceof Uint8Array && rawGeometry.length > 0) {
         try {
           const wkb = stripGeoPackageHeader(rawGeometry);
-          // A GeoPackage "empty geometry" header carries no WKB body.
-          geometry = wkb.length > 0 ? decodeWkb(wkb) : null;
+          // An empty geometry (flagged, or with no WKB body) decodes to null.
+          geometry =
+            isGeoPackageEmptyGeometry(rawGeometry) || wkb.length === 0
+              ? null
+              : decodeWkb(wkb);
         } catch (error) {
           // One unreadable geometry (malformed header, truncated WKB, or an
           // unsupported curved type) must not abort the whole layer. Keep the
