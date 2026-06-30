@@ -1,12 +1,13 @@
-import type { Feature, FeatureCollection, Geometry } from 'geojson';
-import type { GeometryCategory } from '../core/types';
-import type { IEngine, IngestOptions, IngestSummary } from './types';
-import type { Bbox } from '../utils/geometry';
-import { mergeGeometryCategory } from '../utils/geometry';
-import { loadDuckDB, type LoadedDuckDB } from './duckdbLoader';
-import { ensureGpkgFeatureCount } from './gpkgOgrContents';
-import { encodeTileFromFeatures, tileBbox4326 } from '../tiles/mvtFallback';
-import { assertRemoteFileSupported, probeRemoteSize } from '../utils/remote';
+import type { Feature, FeatureCollection, Geometry } from "geojson";
+import type { GeometryCategory } from "../core/types";
+import type { IEngine, IngestOptions, IngestSummary } from "./types";
+import type { Bbox } from "../utils/geometry";
+import { mergeGeometryCategory } from "../utils/geometry";
+import { loadDuckDB, type LoadedDuckDB } from "./duckdbLoader";
+import { ensureGpkgFeatureCount } from "./gpkgOgrContents";
+import { listGeoPackageLayers, readGeoPackage } from "./geopackage";
+import { encodeTileFromFeatures, tileBbox4326 } from "../tiles/mvtFallback";
+import { assertRemoteFileSupported, probeRemoteSize } from "../utils/remote";
 import {
   LON_LAT_COLUMN_PAIRS,
   WKT_COLUMN_NAMES,
@@ -26,13 +27,17 @@ import {
   mvtTileStreamQuery,
   prepareTilesSql,
   quoteIdent,
+  quoteLiteral,
   readerFor,
   sampledGeometryTypesQuery,
   summaryQuery,
   tileFeaturesQuery,
   type DetectedGeometryColumn,
-} from './sql';
-import { registerLooseShapefile, registerZippedShapefile } from '../formats/shapefile';
+} from "./sql";
+import {
+  registerLooseShapefile,
+  registerZippedShapefile,
+} from "../formats/shapefile";
 
 /**
  * Options for creating the DuckDB engine.
@@ -78,7 +83,7 @@ class QueryQueue {
   enqueue<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const run = this._tail.then(() => {
       if (signal?.aborted) {
-        throw new DOMException('The operation was aborted.', 'AbortError');
+        throw new DOMException("The operation was aborted.", "AbortError");
       }
       return task();
     });
@@ -112,18 +117,22 @@ interface ColumnInfo {
 function sanitizeValue(value: any): unknown {
   if (value === null || value === undefined) return null;
   switch (typeof value) {
-    case 'bigint':
-      return Number.isSafeInteger(Number(value)) ? Number(value) : value.toString();
-    case 'number':
-    case 'string':
-    case 'boolean':
+    case "bigint":
+      return Number.isSafeInteger(Number(value))
+        ? Number(value)
+        : value.toString();
+    case "number":
+    case "string":
+    case "boolean":
       return value;
-    case 'object':
+    case "object":
       if (value instanceof Date) return value.toISOString();
       if (value instanceof Uint8Array) return null;
       try {
         return JSON.parse(
-          JSON.stringify(value, (_key, v) => (typeof v === 'bigint' ? Number(v) : v)),
+          JSON.stringify(value, (_key, v) =>
+            typeof v === "bigint" ? Number(v) : v,
+          ),
         );
       } catch {
         return String(value);
@@ -134,9 +143,9 @@ function sanitizeValue(value: any): unknown {
 }
 
 function numberFromCount(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'bigint') return Number(value);
-  if (typeof value === 'string') return Number(value);
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string") return Number(value);
   return 0;
 }
 
@@ -145,10 +154,10 @@ function numberFromCount(value: unknown): number {
  */
 function categoryFromTypeName(name: string): GeometryCategory {
   const upper = name.toUpperCase();
-  if (upper.includes('POINT')) return 'point';
-  if (upper.includes('LINESTRING')) return 'line';
-  if (upper.includes('POLYGON')) return 'polygon';
-  return upper.includes('GEOMETRYCOLLECTION') ? 'mixed' : 'unknown';
+  if (upper.includes("POINT")) return "point";
+  if (upper.includes("LINESTRING")) return "line";
+  if (upper.includes("POLYGON")) return "polygon";
+  return upper.includes("GEOMETRYCOLLECTION") ? "mixed" : "unknown";
 }
 
 /**
@@ -166,6 +175,12 @@ export class DuckDBEngine implements IEngine {
    * released with their table.
    */
   private _sharedFiles = new Map<Blob, string>();
+  /**
+   * GeoPackage bytes per source, so the listLayers probe and the per-layer
+   * ingest(s) of a multi-layer file each read the buffer (a local
+   * `arrayBuffer()` or a remote fetch) only once.
+   */
+  private _geoPackageBytes = new Map<string | Blob, Promise<Uint8Array>>();
   private _sqlJsBaseUrl?: string;
 
   /**
@@ -196,32 +211,58 @@ export class DuckDBEngine implements IEngine {
     options: IngestOptions,
   ): Promise<IngestSummary> {
     return this._queue.enqueue(async () => {
-      const streamed = options.mode === 'stream' && options.format === 'geoparquet';
-      const meta: TableMeta = { propertyColumns: [], prepared: false, streamed };
+      const streamed =
+        options.mode === "stream" && options.format === "geoparquet";
+      const meta: TableMeta = {
+        propertyColumns: [],
+        prepared: false,
+        streamed,
+      };
 
-      const path = await this._registerSource(source, tableName, options);
-      const byteSize =
-        typeof Blob !== 'undefined' && source instanceof Blob
-          ? source.size
-          : await probeRemoteSize(source as string);
-      if (streamed) {
-        await this._createStreamView(tableName, path, options);
+      let byteSize: number | undefined;
+      // GeoPackages are read with sql.js and reprojected through DuckDB, never
+      // through GDAL's ST_Read, which hangs/crashes on the single-threaded WASM
+      // build (see geopackage.ts).
+      if (options.format === "geopackage" && !streamed) {
+        const bytes = await this._geoPackageBytesFor(source);
+        byteSize = bytes.byteLength;
+        await this._createTableFromGeoPackage(tableName, bytes, options);
       } else {
-        try {
-          await this._createTable(tableName, path, options);
-        } catch (err) {
-          // ST_Read on registered buffers fails on some builds; retry local
-          // files through an object URL the worker can fetch.
-          const retried = await this._retryWithObjectUrl(err, source, tableName, options, meta);
-          if (!retried) throw err;
+        const path = await this._registerSource(source, tableName, options);
+        byteSize =
+          typeof Blob !== "undefined" && source instanceof Blob
+            ? source.size
+            : await probeRemoteSize(source as string);
+        if (streamed) {
+          await this._createStreamView(tableName, path, options);
+        } else {
+          try {
+            await this._createTable(tableName, path, options);
+          } catch (err) {
+            // ST_Read on registered buffers fails on some builds; retry local
+            // files through an object URL the worker can fetch.
+            const retried = await this._retryWithObjectUrl(
+              err,
+              source,
+              tableName,
+              options,
+              meta,
+            );
+            if (!retried) throw err;
+          }
         }
       }
 
       const columns = await this._describeTable(tableName);
-      meta.bboxColumn = columns.find((c) => isBboxCoveringColumn(c.name, c.type))?.name;
+      meta.bboxColumn = columns.find((c) =>
+        isBboxCoveringColumn(c.name, c.type),
+      )?.name;
       meta.propertyColumns = columns
         .filter(
-          (c) => c.type !== 'GEOMETRY' && c.name !== 'geom_3857' && c.name !== meta.bboxColumn,
+          (c) =>
+            c.type !== "GEOMETRY" &&
+            c.name !== "geom_3857" &&
+            c.name !== meta.bboxColumn,
         )
         .map((c) => c.name);
       this._tables.set(tableName, meta);
@@ -244,9 +285,9 @@ export class DuckDBEngine implements IEngine {
         for (const column of meta.propertyColumns) {
           properties[column] = sanitizeValue(row[column]);
         }
-        return { type: 'Feature', geometry, properties };
+        return { type: "Feature", geometry, properties };
       });
-      return { type: 'FeatureCollection', features };
+      return { type: "FeatureCollection", features };
     });
   }
 
@@ -302,7 +343,10 @@ export class DuckDBEngine implements IEngine {
             )
           : mvtTileQuery(tableName, layerName, z, x, y, meta.propertyColumns);
         const result = await this._loaded.conn.query(query);
-        const value = result.toArray()[0]?.tile as Uint8Array | null | undefined;
+        const value = result.toArray()[0]?.tile as
+          | Uint8Array
+          | null
+          | undefined;
         // Copy out of WASM-backed memory before handing to MapLibre.
         return value ? new Uint8Array(value) : new Uint8Array(0);
       }
@@ -318,7 +362,7 @@ export class DuckDBEngine implements IEngine {
         for (const column of meta.propertyColumns) {
           properties[column] = sanitizeValue(row[column]);
         }
-        return { type: 'Feature', geometry, properties };
+        return { type: "Feature", geometry, properties };
       });
       return encodeTileFromFeatures(features, layerName, z, x, y);
     }, signal);
@@ -328,8 +372,10 @@ export class DuckDBEngine implements IEngine {
   dropTable(tableName: string): Promise<void> {
     return this._queue.enqueue(async () => {
       const meta = this._tables.get(tableName);
-      const kind = meta?.streamed ? 'VIEW' : 'TABLE';
-      await this._loaded.conn.query(`DROP ${kind} IF EXISTS ${quoteIdent(tableName)}`);
+      const kind = meta?.streamed ? "VIEW" : "TABLE";
+      await this._loaded.conn.query(
+        `DROP ${kind} IF EXISTS ${quoteIdent(tableName)}`,
+      );
       // Shared registered files are NOT dropped here: another table
       // ingested from the same Blob may still read them. They are
       // released when the engine is disposed.
@@ -350,6 +396,7 @@ export class DuckDBEngine implements IEngine {
       await this._loaded.db.dropFile(name).catch(() => undefined);
     }
     this._sharedFiles.clear();
+    this._geoPackageBytes.clear();
     await this._loaded.conn.close().catch(() => undefined);
     await this._loaded.db.terminate().catch(() => undefined);
   }
@@ -363,7 +410,7 @@ export class DuckDBEngine implements IEngine {
     registrationName: string,
     options: IngestOptions,
   ): Promise<string> {
-    if (typeof source === 'string') {
+    if (typeof source === "string") {
       // Defense in depth: the layer manager checks before loading the
       // engine; the shared cache makes this probe free.
       await assertRemoteFileSupported(source);
@@ -373,14 +420,14 @@ export class DuckDBEngine implements IEngine {
     const shared = this._sharedFiles.get(source);
     if (shared) return shared;
 
-    const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? 'bin';
+    const extension = options.fileName?.match(/\.([a-z0-9]+)$/i)?.[1] ?? "bin";
     const name = `${registrationName}.${extension.toLowerCase()}`;
     let buffer: Uint8Array = new Uint8Array(await source.arrayBuffer());
 
     // GeoPackages without gpkg_ogr_contents crash ST_Read on single-threaded
     // DuckDB-WASM; repair the buffer before registering it. See
     // gpkgOgrContents.ts.
-    if (options.format === 'geopackage') {
+    if (options.format === "geopackage") {
       buffer = await ensureGpkgFeatureCount(buffer, this._sqlJsBaseUrl);
     }
 
@@ -389,7 +436,7 @@ export class DuckDBEngine implements IEngine {
     // DuckDB's registered-file VFS), so a zipped shapefile is unzipped and its
     // components are registered individually; readers then open the .shp
     // directly rather than via /vsizip.
-    if (options.format === 'shapefile' && /\.zip$/i.test(name)) {
+    if (options.format === "shapefile" && /\.zip$/i.test(name)) {
       const shpPath = await registerZippedShapefile(
         buffer,
         registrationName,
@@ -404,10 +451,10 @@ export class DuckDBEngine implements IEngine {
     // register every component under one base name so GDAL resolves the
     // siblings when reading the `.shp` directly. Without this a lone `.shp`
     // fails with "GDALOpen() called on x.shp recursively".
-    if (options.format === 'shapefile' && options.companionFiles?.length) {
+    if (options.format === "shapefile" && options.companionFiles?.length) {
       const components = await Promise.all(
         options.companionFiles.map(async (file) => ({
-          extension: file.name.slice(file.name.lastIndexOf('.')),
+          extension: file.name.slice(file.name.lastIndexOf(".")),
           bytes: new Uint8Array(await file.arrayBuffer()),
         })),
       );
@@ -427,6 +474,84 @@ export class DuckDBEngine implements IEngine {
     return name;
   }
 
+  /**
+   * Reads a GeoPackage source's bytes once and caches them, so the listLayers
+   * probe and each per-layer ingest of a multi-layer file share a single
+   * `arrayBuffer()` (local) or fetch (remote).
+   */
+  private _geoPackageBytesFor(
+    source: string | File | Blob,
+  ): Promise<Uint8Array> {
+    const cached = this._geoPackageBytes.get(source);
+    if (cached) return cached;
+    const bytes = (async () => {
+      if (typeof source === "string") {
+        await assertRemoteFileSupported(source);
+        const response = await fetch(source);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch GeoPackage (${response.status} ${response.statusText}).`,
+          );
+        }
+        return new Uint8Array(await response.arrayBuffer());
+      }
+      return new Uint8Array(await source.arrayBuffer());
+    })();
+    // Drop a failed read from the cache so a later attempt can retry.
+    bytes.catch(() => this._geoPackageBytes.delete(source));
+    this._geoPackageBytes.set(source, bytes);
+    return bytes;
+  }
+
+  /**
+   * Creates the ingest table from a GeoPackage by reading it with sql.js into
+   * GeoJSON, loading that through DuckDB's (unaffected) GeoJSON reader, and
+   * reprojecting to EPSG:4326 with ST_Transform when the layer's CRS is not
+   * already WGS84. Bypasses GDAL's GeoPackage driver entirely (see
+   * geopackage.ts).
+   */
+  private async _createTableFromGeoPackage(
+    tableName: string,
+    bytes: Uint8Array,
+    options: IngestOptions,
+  ): Promise<void> {
+    const { featureCollection, epsgCode } = await readGeoPackage(
+      bytes,
+      options.sourceLayer,
+      this._sqlJsBaseUrl,
+    );
+    // ST_Read of an empty GeoJSON exposes no geometry column, so the EXCLUDE
+    // below would fail; create an empty table with just `geom` instead.
+    if (featureCollection.features.length === 0) {
+      await this._loaded.conn.query(
+        `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
+          `SELECT NULL::GEOMETRY AS geom WHERE false`,
+      );
+      return;
+    }
+    const geojsonName = `${tableName}.geojson`;
+    await this._loaded.db.registerFileBuffer(
+      geojsonName,
+      new TextEncoder().encode(JSON.stringify(featureCollection)),
+    );
+    try {
+      const reader = `ST_Read(${quoteLiteral(geojsonName)})`;
+      // ST_Read exposes a GeoJSON's geometry as a native GEOMETRY column named
+      // `geom`; reproject it to WGS84 when the GeoPackage stored another CRS so
+      // the rest of the pipeline (tiles, export) can assume EPSG:4326.
+      const geomExpr =
+        epsgCode == null
+          ? "geom"
+          : `ST_Transform(geom, ${quoteLiteral(`EPSG:${epsgCode}`)}, 'EPSG:4326', always_xy := true)`;
+      await this._loaded.conn.query(
+        `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
+          `SELECT * EXCLUDE (geom), ${geomExpr} AS geom FROM ${reader}`,
+      );
+    } finally {
+      await this._loaded.db.dropFile(geojsonName).catch(() => undefined);
+    }
+  }
+
   /** @inheritdoc */
   listLayers(
     source: string | File | Blob,
@@ -435,7 +560,18 @@ export class DuckDBEngine implements IEngine {
   ): Promise<string[]> {
     return this._queue.enqueue(async () => {
       try {
-        const path = await this._registerSource(source, registrationName, options);
+        // GeoPackages are listed with sql.js, not ST_Read_Meta: GDAL's
+        // GeoPackage driver hangs/crashes on the single-threaded WASM build
+        // (see geopackage.ts).
+        if (options.format === "geopackage") {
+          const bytes = await this._geoPackageBytesFor(source);
+          return listGeoPackageLayers(bytes, this._sqlJsBaseUrl);
+        }
+        const path = await this._registerSource(
+          source,
+          registrationName,
+          options,
+        );
         const result = await this._loaded.conn.query(
           layersMetaQuery(gdalPath(options.format, path)),
         );
@@ -457,20 +593,28 @@ export class DuckDBEngine implements IEngine {
     path: string,
     options: IngestOptions,
   ): Promise<void> {
-    const reader = readerFor(options.format, gdalPath(options.format, path), options.sourceLayer);
+    const reader = readerFor(
+      options.format,
+      gdalPath(options.format, path),
+      options.sourceLayer,
+    );
     const columns = await this._describeReader(reader);
 
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
-      await this._loaded.conn.query(createTableFromGeometrySql(tableName, reader, geometryColumn));
+      await this._loaded.conn.query(
+        createTableFromGeometrySql(tableName, reader, geometryColumn),
+      );
       return;
     }
 
-    if (options.format === 'csv') {
+    if (options.format === "csv") {
       const lower = new Map(columns.map((c) => [c.name.toLowerCase(), c.name]));
       const wktName = WKT_COLUMN_NAMES.map((n) => lower.get(n)).find(Boolean);
       if (wktName) {
-        await this._loaded.conn.query(createTableFromWktSql(tableName, reader, wktName));
+        await this._loaded.conn.query(
+          createTableFromWktSql(tableName, reader, wktName),
+        );
         return;
       }
       for (const [lon, lat] of LON_LAT_COLUMN_PAIRS) {
@@ -484,12 +628,14 @@ export class DuckDBEngine implements IEngine {
         }
       }
       throw new Error(
-        'CSV has no recognizable geometry: expected a WKT column ' +
-          `(${WKT_COLUMN_NAMES.join(', ')}) or longitude/latitude columns`,
+        "CSV has no recognizable geometry: expected a WKT column " +
+          `(${WKT_COLUMN_NAMES.join(", ")}) or longitude/latitude columns`,
       );
     }
 
-    throw new Error(`No geometry column found in source (format: ${options.format})`);
+    throw new Error(
+      `No geometry column found in source (format: ${options.format})`,
+    );
   }
 
   /**
@@ -505,9 +651,11 @@ export class DuckDBEngine implements IEngine {
     const columns = await this._describeReader(reader);
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (!geometryColumn) {
-      throw new Error('No geometry column found in GeoParquet source');
+      throw new Error("No geometry column found in GeoParquet source");
     }
-    await this._loaded.conn.query(createViewFromGeometrySql(tableName, reader, geometryColumn));
+    await this._loaded.conn.query(
+      createViewFromGeometrySql(tableName, reader, geometryColumn),
+    );
   }
 
   private async _detectGeometryColumn(
@@ -532,9 +680,12 @@ export class DuckDBEngine implements IEngine {
     return undefined;
   }
 
-  private async _hasValidBase64WkbValues(reader: string, column: string): Promise<boolean> {
+  private async _hasValidBase64WkbValues(
+    reader: string,
+    column: string,
+  ): Promise<boolean> {
     const columnSql = quoteIdent(column);
-    const sampleColumn = quoteIdent('__maplibre_gl_vector_base64_wkb_sample');
+    const sampleColumn = quoteIdent("__maplibre_gl_vector_base64_wkb_sample");
     const result = await this._loaded.conn.query(
       `SELECT count(*) AS sample_count, ` +
         `count(TRY(ST_GeomFromWKB(from_base64(${sampleColumn})))) AS valid_count ` +
@@ -561,8 +712,9 @@ export class DuckDBEngine implements IEngine {
     options: IngestOptions,
     meta: TableMeta,
   ): Promise<boolean> {
-    if (typeof source === 'string' || !(source instanceof Blob)) return false;
-    if (options.format === 'geoparquet' || options.format === 'csv') return false;
+    if (typeof source === "string" || !(source instanceof Blob)) return false;
+    if (options.format === "geoparquet" || options.format === "csv")
+      return false;
 
     const objectUrl = URL.createObjectURL(source);
     try {
@@ -579,7 +731,9 @@ export class DuckDBEngine implements IEngine {
    * Describes the columns a reader expression produces.
    */
   private async _describeReader(reader: string): Promise<ColumnInfo[]> {
-    const result = await this._loaded.conn.query(columnsQueryFromDescribe(reader));
+    const result = await this._loaded.conn.query(
+      columnsQueryFromDescribe(reader),
+    );
     return result.toArray().map((row) => ({
       name: String(row.column_name),
       type: String(row.column_type),
@@ -599,7 +753,7 @@ export class DuckDBEngine implements IEngine {
   private async _summarize(
     tableName: string,
     meta: TableMeta,
-  ): Promise<Omit<IngestSummary, 'tableName' | 'byteSize'>> {
+  ): Promise<Omit<IngestSummary, "tableName" | "byteSize">> {
     // Streamed sources with a bbox covering column summarize from the
     // bbox stats instead of scanning every geometry.
     const summarySql =
@@ -611,19 +765,21 @@ export class DuckDBEngine implements IEngine {
     const featureCount = Number(row.feature_count ?? 0);
 
     let bbox: Bbox | undefined;
-    const coords = [row.xmin, row.ymin, row.xmax, row.ymax].map((v) => Number(v));
+    const coords = [row.xmin, row.ymin, row.xmax, row.ymax].map((v) =>
+      Number(v),
+    );
     if (coords.every((v) => Number.isFinite(v))) {
       bbox = coords as Bbox;
     }
 
-    let geometryType: GeometryCategory = 'unknown';
+    let geometryType: GeometryCategory = "unknown";
     const typesSql = meta.streamed
       ? sampledGeometryTypesQuery(tableName)
       : geometryTypesQuery(tableName);
     const typesResult = await this._loaded.conn.query(typesSql);
     for (const typeRow of typesResult.toArray()) {
       geometryType = mergeGeometryCategory(
-        geometryType === 'unknown' ? undefined : geometryType,
+        geometryType === "unknown" ? undefined : geometryType,
         categoryFromTypeName(String(typeRow.geometry_type)),
       );
     }
@@ -646,7 +802,9 @@ export class DuckDBEngine implements IEngine {
  * @param options - Engine creation options
  * @returns The ready engine
  */
-export async function createEngine(options?: CreateEngineOptions): Promise<IEngine> {
+export async function createEngine(
+  options?: CreateEngineOptions,
+): Promise<IEngine> {
   const loaded = await loadDuckDB(
     options?.onProgress,
     options?.baseUrl,

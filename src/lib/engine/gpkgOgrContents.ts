@@ -19,30 +19,30 @@
  * mirroring how duckdb-wasm is loaded, so it is not a bundled dependency.
  */
 
-import { loadScriptFromCdn } from './duckdbLoader';
+import { loadScriptFromCdn } from "./duckdbLoader";
 
 /** Pinned sql.js version loaded from the CDN. */
-export const SQLJS_VERSION = '1.13.0';
+export const SQLJS_VERSION = "1.13.0";
 
 /** jsDelivr base URL for the pinned sql.js package. */
 export const SQLJS_CDN_BASE = `https://cdn.jsdelivr.net/npm/sql.js@${SQLJS_VERSION}`;
 
-const SQLITE_MAGIC = 'SQLite format 3\0';
+const SQLITE_MAGIC = "SQLite format 3\0";
 
 /** Minimal structural types for the sql.js API surface we use. */
-interface SqlJsQueryResult {
+export interface SqlJsQueryResult {
   columns: string[];
   values: Array<Array<string | number | Uint8Array | null>>;
 }
 
-interface SqlJsDatabase {
+export interface SqlJsDatabase {
   run(sql: string, params?: Record<string, unknown>): void;
   exec(sql: string, params?: Record<string, unknown>): SqlJsQueryResult[];
   export(): Uint8Array;
   close(): void;
 }
 
-interface SqlJsStatic {
+export interface SqlJsStatic {
   Database: new (data?: Uint8Array) => SqlJsDatabase;
 }
 
@@ -59,14 +59,14 @@ export function looksLikeSqlite(bytes: Uint8Array): boolean {
   return true;
 }
 
-function quoteIdentifier(value: string): string {
+export function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function tableExists(db: SqlJsDatabase, name: string): boolean {
+export function tableExists(db: SqlJsDatabase, name: string): boolean {
   const result = db.exec(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=:name",
-    { ':name': name },
+    { ":name": name },
   );
   return result.length > 0 && result[0].values.length > 0;
 }
@@ -88,7 +88,7 @@ export function ensureGpkgFeatureCountSync(
   const db = new SQL.Database(bytes);
   try {
     // gpkg_contents is mandatory in the spec; only touch real GeoPackages.
-    if (!tableExists(db, 'gpkg_contents')) return bytes;
+    if (!tableExists(db, "gpkg_contents")) return bytes;
 
     const featureTablesResult = db.exec(
       "SELECT table_name FROM gpkg_contents WHERE data_type='features'",
@@ -101,14 +101,14 @@ export function ensureGpkgFeatureCountSync(
     }
     const featureTables = featureTablesResult[0].values
       .map((row) => row[0])
-      .filter((name): name is string => typeof name === 'string');
+      .filter((name): name is string => typeof name === "string");
 
-    const hasOgrContents = tableExists(db, 'gpkg_ogr_contents');
+    const hasOgrContents = tableExists(db, "gpkg_ogr_contents");
     const existingCounts = new Set<string>();
     if (hasOgrContents) {
-      const existing = db.exec('SELECT table_name FROM gpkg_ogr_contents');
+      const existing = db.exec("SELECT table_name FROM gpkg_ogr_contents");
       for (const row of existing[0]?.values ?? []) {
-        if (typeof row[0] === 'string') existingCounts.add(row[0]);
+        if (typeof row[0] === "string") existingCounts.add(row[0]);
       }
     }
 
@@ -117,9 +117,9 @@ export function ensureGpkgFeatureCountSync(
 
     if (!hasOgrContents) {
       db.run(
-        'CREATE TABLE gpkg_ogr_contents (' +
-          'table_name TEXT NOT NULL PRIMARY KEY, ' +
-          'feature_count INTEGER DEFAULT NULL)',
+        "CREATE TABLE gpkg_ogr_contents (" +
+          "table_name TEXT NOT NULL PRIMARY KEY, " +
+          "feature_count INTEGER DEFAULT NULL)",
       );
     }
 
@@ -129,8 +129,8 @@ export function ensureGpkgFeatureCountSync(
       );
       const count = countResult[0]?.values[0]?.[0] ?? 0;
       db.run(
-        'INSERT INTO gpkg_ogr_contents (table_name, feature_count) VALUES (:name, :count)',
-        { ':name': tableName, ':count': count },
+        "INSERT INTO gpkg_ogr_contents (table_name, feature_count) VALUES (:name, :count)",
+        { ":name": tableName, ":count": count },
       );
     }
 
@@ -149,14 +149,14 @@ let sqlJsPromise: Promise<SqlJsStatic> | null = null;
  *   {@link SQLJS_VERSION} (a `/dist/sql-wasm.js` UMD script plus the matching
  *   `/dist/sql-wasm.wasm`). Defaults to jsDelivr when unset.
  */
-async function loadSqlJs(baseUrl?: string): Promise<SqlJsStatic> {
+export async function loadSqlJs(baseUrl?: string): Promise<SqlJsStatic> {
   if (!sqlJsPromise) {
-    const base = (baseUrl ?? SQLJS_CDN_BASE).replace(/\/+$/, '');
+    const base = (baseUrl ?? SQLJS_CDN_BASE).replace(/\/+$/, "");
     sqlJsPromise = (async () => {
       await loadScriptFromCdn(`${base}/dist/sql-wasm.js`);
       const initSqlJs = (globalThis as { initSqlJs?: InitSqlJs }).initSqlJs;
       if (!initSqlJs) {
-        throw new Error('sql.js failed to expose a global initSqlJs');
+        throw new Error("sql.js failed to expose a global initSqlJs");
       }
       return initSqlJs({ locateFile: (file) => `${base}/dist/${file}` });
     })();
@@ -189,7 +189,7 @@ export async function ensureGpkgFeatureCount(
     return ensureGpkgFeatureCountSync(SQL, bytes);
   } catch (error) {
     console.warn(
-      '[maplibre-gl-vector] Could not ensure gpkg_ogr_contents; reading file as-is.',
+      "[maplibre-gl-vector] Could not ensure gpkg_ogr_contents; reading file as-is.",
       error,
     );
     return bytes;
