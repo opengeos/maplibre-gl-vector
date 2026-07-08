@@ -6,6 +6,19 @@ function stripExtension(entryName: string): string {
 }
 
 /**
+ * True for the metadata entries macOS adds when it creates a zip: the
+ * `__MACOSX/` resource-fork tree and the AppleDouble `._<name>` files that
+ * shadow every real entry. These must be ignored, because an AppleDouble
+ * `._states.shp` matches a naive `.shp` search and would otherwise be picked as
+ * the shapefile (a few hundred bytes of resource-fork data GDAL rejects with
+ * "not recognized as a supported file format") instead of the real `.shp`.
+ */
+function isMacOsMetadataEntry(entryName: string): boolean {
+  const baseName = entryName.slice(entryName.lastIndexOf('/') + 1);
+  return entryName.startsWith('__MACOSX/') || baseName.startsWith('._');
+}
+
+/**
  * Shapefile sidecar extensions (without the dot) that ride along with a `.shp`
  * when the loose components are selected together. GDAL needs at least `.shx`
  * and `.dbf`; the projection (`.prj`), encoding (`.cpg`) and spatial-index
@@ -117,7 +130,9 @@ export async function registerZippedShapefile(
   register: (name: string, bytes: Uint8Array) => Promise<void> | void,
 ): Promise<string> {
   const files = unzipSync(zip);
-  const shpEntry = Object.keys(files).find((name) => /\.shp$/i.test(name));
+  const shpEntry = Object.keys(files).find(
+    (name) => /\.shp$/i.test(name) && !isMacOsMetadataEntry(name),
+  );
   if (!shpEntry) {
     throw new Error('Zip archive does not contain a .shp file.');
   }
@@ -125,8 +140,9 @@ export async function registerZippedShapefile(
   const base = stripExtension(shpEntry);
   let shpPath = '';
   for (const [entry, bytes] of Object.entries(files)) {
-    // Only this shapefile's sidecars (same base path, any extension).
-    if (stripExtension(entry) !== base) continue;
+    // Only this shapefile's sidecars (same base path, any extension), never a
+    // macOS AppleDouble shadow of one.
+    if (isMacOsMetadataEntry(entry) || stripExtension(entry) !== base) continue;
     const extension = entry.slice(entry.lastIndexOf('.')).toLowerCase();
     const registeredName = `${baseName}${extension}`;
     await register(registeredName, bytes);

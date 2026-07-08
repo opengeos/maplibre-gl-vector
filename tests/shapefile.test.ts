@@ -64,6 +64,53 @@ describe('registerZippedShapefile', () => {
     ]);
   });
 
+  it('ignores macOS __MACOSX / AppleDouble entries and picks the real .shp', async () => {
+    // A zip created by macOS Finder carries a `__MACOSX/` tree of AppleDouble
+    // `._<name>` resource forks. `._states.shp` ends in `.shp` and, being listed
+    // first, would be mistaken for the shapefile without the metadata filter.
+    const zip = zipSync({
+      '__MACOSX/._states.shp': strToU8('appledouble-junk'),
+      '__MACOSX/._states.dbf': strToU8('appledouble-junk'),
+      'states.shp': strToU8('shp'),
+      'states.dbf': strToU8('dbf'),
+      'states.shx': strToU8('shx'),
+    });
+    const { registered, register } = recorder();
+
+    const shpPath = await registerZippedShapefile(zip, 't_vector_mac', register);
+
+    expect(shpPath).toBe('t_vector_mac.shp');
+    // Only the real components register; no AppleDouble bytes leak in.
+    expect([...registered.keys()].sort()).toEqual([
+      't_vector_mac.dbf',
+      't_vector_mac.shp',
+      't_vector_mac.shx',
+    ]);
+    expect(registered.get('t_vector_mac.shp')).toEqual(strToU8('shp'));
+  });
+
+  it('handles a subdirectory shapefile alongside its __MACOSX shadow', async () => {
+    // The reported case: the shapefile sits in its own folder and the archive
+    // also carries the parallel `__MACOSX/<folder>/._<name>` shadows.
+    const zip = zipSync({
+      '__MACOSX/layer.shp/._layer.shp': strToU8('appledouble-junk'),
+      'layer.shp/layer.shp': strToU8('shp'),
+      'layer.shp/layer.dbf': strToU8('dbf'),
+      'layer.shp/layer.shx': strToU8('shx'),
+    });
+    const { registered, register } = recorder();
+
+    const shpPath = await registerZippedShapefile(zip, 't_vector_dir', register);
+
+    expect(shpPath).toBe('t_vector_dir.shp');
+    expect([...registered.keys()].sort()).toEqual([
+      't_vector_dir.dbf',
+      't_vector_dir.shp',
+      't_vector_dir.shx',
+    ]);
+    expect(registered.get('t_vector_dir.shp')).toEqual(strToU8('shp'));
+  });
+
   it('throws when the archive contains no .shp', async () => {
     const zip = zipSync({ 'notes.txt': strToU8('hi') });
     const { register } = recorder();
