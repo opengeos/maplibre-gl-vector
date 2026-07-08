@@ -110,7 +110,10 @@ export function isGeoPackageEmptyGeometry(blob: Uint8Array): boolean {
  *
  * Handles mixed byte order, ISO WKB dimensionality (Z/M, where the type code is
  * offset by 1000/2000/3000) and the PostGIS EWKB Z/M/SRID high-bit flags. The M
- * ordinate is dropped; Z is kept so a `[x, y, z]` position survives. Throws on
+ * ordinate is dropped; Z is kept so a `[x, y, z]` position survives. Surface
+ * geometries (TIN / PolyhedralSurface / Triangle, codes 15-17) — the encoding
+ * GDAL produces for ESRI MultiPatch shapefiles — have no GeoJSON equivalent, so
+ * each is exposed as a MultiPolygon (or Polygon, for a lone Triangle). Throws on
  * the curved geometry types (CircularString and friends, codes 8-12) that
  * GeoJSON cannot represent.
  *
@@ -217,6 +220,35 @@ export function decodeWkb(bytes: Uint8Array): Geometry {
       }
       case 7:
         return { type: "GeometryCollection", geometries: readChildren() };
+      case 15: {
+        // PolyhedralSurface: a set of polygon patches. GeoJSON has no surface
+        // type, so expose the patches as a MultiPolygon (each patch keeps its
+        // own header, so readChildren decodes them like MultiPolygon members).
+        const patches = readChildren();
+        return {
+          type: "MultiPolygon",
+          coordinates: patches.map(
+            (patch) => (patch as { coordinates: Position[][] }).coordinates,
+          ),
+        };
+      }
+      case 16: {
+        // TIN (Triangulated Irregular Network): a set of Triangle patches, the
+        // encoding GDAL emits for an ESRI MultiPatch shapefile (3D buildings).
+        // Each triangle decodes to a Polygon (case 17), so the surface becomes a
+        // MultiPolygon MapLibre can render.
+        const triangles = readChildren();
+        return {
+          type: "MultiPolygon",
+          coordinates: triangles.map(
+            (triangle) =>
+              (triangle as { coordinates: Position[][] }).coordinates,
+          ),
+        };
+      }
+      case 17:
+        // Triangle: a Polygon constrained to a single 4-vertex ring.
+        return { type: "Polygon", coordinates: readRings() };
       default:
         // Codes 8-12 are the curved geometries (CircularString, CompoundCurve,
         // CurvePolygon, MultiCurve, MultiSurface) that GeoJSON cannot represent.

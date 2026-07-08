@@ -533,6 +533,40 @@ export function layersMetaQuery(path: string): string {
 }
 
 /**
+ * An `ST_Read` reader that keeps geometry as raw WKB (a `wkb_geometry` BLOB)
+ * instead of decoding it into DuckDB's GEOMETRY type. Used as a fallback for
+ * surface geometries (TIN / PolyhedralSurface) whose WKB DuckDB Spatial cannot
+ * parse, so the raw bytes can be decoded in JS instead.
+ *
+ * @param path - Registered file name or URL
+ * @param sourceLayer - Optional OGR layer name for a multi-layer source
+ * @returns The reader expression
+ */
+export function keepWkbReaderFor(path: string, sourceLayer?: string): string {
+  const layerArg = sourceLayer ? `, layer = ${quoteLiteral(sourceLayer)}` : '';
+  return `ST_Read(${quoteLiteral(path)}${layerArg}, keep_wkb = true)`;
+}
+
+/**
+ * SQL reading the first layer's first geometry field CRS from `ST_Read_Meta`,
+ * used to reproject a surface-geometry fallback layer to WGS84. `wkt` is the
+ * fallback when GDAL could not resolve an EPSG code (e.g. a custom ESRI `.prj`);
+ * `ST_Transform` accepts a WKT string source just as it does `AUTHORITY:CODE`.
+ *
+ * @param path - Registered file name or URL
+ * @returns The query text
+ */
+export function sourceCrsMetaQuery(path: string): string {
+  return (
+    `SELECT ` +
+    `layers[1].geometry_fields[1].crs.auth_name AS auth_name, ` +
+    `layers[1].geometry_fields[1].crs.auth_code AS auth_code, ` +
+    `layers[1].geometry_fields[1].crs.wkt AS wkt ` +
+    `FROM ST_Read_Meta(${quoteLiteral(path)})`
+  );
+}
+
+/**
  * SQL probing whether the loaded spatial build supports ST_AsMVT.
  *
  * @returns The probe query text
