@@ -22,6 +22,7 @@ import {
   gdalPath,
   geometryTypesQuery,
   isBboxCoveringColumn,
+  keepWkbReaderFor,
   layersMetaQuery,
   mvtTileQuery,
   mvtTileStreamQuery,
@@ -30,6 +31,7 @@ import {
   quoteLiteral,
   readerFor,
   sampledGeometryTypesQuery,
+  sourceCrsMetaQuery,
   summaryQuery,
   tileFeaturesQuery,
   type DetectedGeometryColumn,
@@ -38,6 +40,10 @@ import {
   registerLooseShapefile,
   registerZippedShapefile,
 } from "../formats/shapefile";
+import {
+  isUnsupportedSurfaceWkbError,
+  wkbRowsToFeatureCollection,
+} from "./surfaceWkb";
 
 /**
  * Options for creating the DuckDB engine.
@@ -606,9 +612,21 @@ export class DuckDBEngine implements IEngine {
 
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
-      await this._loaded.conn.query(
-        createTableFromGeometrySql(tableName, reader, geometryColumn),
-      );
+      try {
+        await this._loaded.conn.query(
+          createTableFromGeometrySql(tableName, reader, geometryColumn),
+        );
+      } catch (error) {
+        // DuckDB Spatial's WKB reader rejects surface geometries (TIN /
+        // PolyhedralSurface), which its bundled GDAL emits for ESRI MultiPatch
+        // shapefiles (3D buildings). Re-read the raw WKB and decode it in JS.
+        // Only ST_Read formats can fall back this way (Parquet is read via
+        // read_parquet, not GDAL), so those propagate the original error.
+        if (options.format === "geoparquet" || !isUnsupportedSurfaceWkbError(error)) {
+          throw error;
+        }
+        await this._createTableFromSurfaceWkb(tableName, path, options);
+      }
       return;
     }
 
@@ -640,6 +658,85 @@ export class DuckDBEngine implements IEngine {
     throw new Error(
       `No geometry column found in source (format: ${options.format})`,
     );
+  }
+
+  /**
+   * Creates the ingest table for a source whose geometry DuckDB Spatial cannot
+   * materialize as a GEOMETRY value — TIN / PolyhedralSurface surfaces, the
+   * encoding GDAL emits for ESRI MultiPatch shapefiles (3D buildings). The
+   * geometry is re-read as raw WKB (`keep_wkb := true`), decoded to a
+   * MultiPolygon in JS, then loaded back through DuckDB's GeoJSON reader (which
+   * accepts the decoded MultiPolygon) and reprojected to WGS84 so the rest of
+   * the pipeline (tiles, export) can assume EPSG:4326.
+   */
+  private async _createTableFromSurfaceWkb(
+    tableName: string,
+    path: string,
+    options: IngestOptions,
+  ): Promise<void> {
+    const wkbReader = keepWkbReaderFor(path, options.sourceLayer);
+    const columns = await this._describeReader(wkbReader);
+    // `keep_wkb` materializes the geometry as a WKB blob column named
+    // `wkb_geometry` (its DuckDB type varies by build: `BLOB` or `WKB_BLOB`), so
+    // find it by that name, falling back to any WKB/BLOB-typed column.
+    const wkbColumn =
+      columns.find((column) => column.name.toLowerCase() === "wkb_geometry") ??
+      columns.find((column) => /WKB|BLOB|BINARY/i.test(column.type));
+    if (!wkbColumn) {
+      throw new Error("No WKB geometry column found after re-reading raw WKB.");
+    }
+    const result = await this._loaded.conn.query(`SELECT * FROM ${wkbReader}`);
+    const rows = result.toArray().map((row) => row as Record<string, unknown>);
+    const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
+    const sourceCrs = await this._readSourceCrs(path);
+
+    const geojsonName = `${tableName}.surface.geojson`;
+    await this._loaded.db.registerFileBuffer(
+      geojsonName,
+      new TextEncoder().encode(JSON.stringify(featureCollection)),
+    );
+    try {
+      const reader = `ST_Read(${quoteLiteral(geojsonName)})`;
+      // The decoded geometry is in the file's own CRS; reproject to WGS84 when a
+      // source CRS was resolved (a `crs`-less GeoJSON reader leaves `geom` in the
+      // source coordinates otherwise).
+      const geomExpr = sourceCrs
+        ? `ST_Transform(geom, ${quoteLiteral(sourceCrs)}, 'EPSG:4326', always_xy := true)`
+        : "geom";
+      await this._loaded.conn.query(
+        `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
+          `SELECT * EXCLUDE (geom), ${geomExpr} AS geom FROM ${reader}`,
+      );
+    } finally {
+      await this._loaded.db.dropFile(geojsonName).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Resolves a source's CRS from `ST_Read_Meta` as a string `ST_Transform`
+   * accepts — `AUTHORITY:CODE` when GDAL identified one, otherwise the raw WKT
+   * definition (common for ESRI `.prj` files without an EPSG code), or null when
+   * no usable CRS is present (so reprojection is skipped).
+   */
+  private async _readSourceCrs(path: string): Promise<string | null> {
+    try {
+      const result = await this._loaded.conn.query(sourceCrsMetaQuery(path));
+      const row = result.toArray()[0] as
+        | { auth_name?: unknown; auth_code?: unknown; wkt?: unknown }
+        | undefined;
+      if (!row) return null;
+      const authName =
+        typeof row.auth_name === "string" ? row.auth_name.trim() : "";
+      const authCode =
+        row.auth_code != null ? String(row.auth_code).trim() : "";
+      if (authName && authCode) return `${authName.toUpperCase()}:${authCode}`;
+      const wkt = typeof row.wkt === "string" ? row.wkt.trim() : "";
+      return wkt || null;
+    } catch {
+      // Reprojection is best-effort; without a CRS the layer still loads (in its
+      // source coordinates) rather than failing.
+      return null;
+    }
   }
 
   /**

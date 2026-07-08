@@ -245,6 +245,85 @@ describe("decodeWkb", () => {
       /curved geometries/,
     );
   });
+
+  // ESRI MultiPatch shapefiles (3D buildings) come through GDAL as TIN /
+  // Triangle / PolyhedralSurface WKB, which decodeWkb maps to a MultiPolygon.
+  const u32 = (value: number): number[] => [
+    value & 0xff,
+    (value >> 8) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 24) & 0xff,
+  ];
+  const f64 = (value: number): number[] => {
+    const bytes = new Uint8Array(8);
+    new DataView(bytes.buffer).setFloat64(0, value, true);
+    return Array.from(bytes);
+  };
+  const ringBytes = (positions: Array<[number, number, number]>): number[] => [
+    ...u32(positions.length),
+    ...positions.flatMap(([x, y, z]) => [...f64(x), ...f64(y), ...f64(z)]),
+  ];
+  // A WKB Triangle Z (type 1017): one exterior ring.
+  const triangle = (positions: Array<[number, number, number]>): number[] => [
+    0x01,
+    ...u32(1017),
+    ...u32(1),
+    ...ringBytes(positions),
+  ];
+  const triA: Array<[number, number, number]> = [
+    [0, 0, 10],
+    [1, 0, 10],
+    [1, 1, 10],
+    [0, 0, 10],
+  ];
+  const triB: Array<[number, number, number]> = [
+    [1, 1, 20],
+    [2, 1, 20],
+    [2, 2, 20],
+    [1, 1, 20],
+  ];
+
+  it("decodes a Triangle Z to a Polygon, keeping Z", () => {
+    expect(decodeWkb(new Uint8Array(triangle(triA)))).toEqual({
+      type: "Polygon",
+      coordinates: [triA],
+    });
+  });
+
+  it("decodes a TIN Z to a MultiPolygon (one polygon per triangle)", () => {
+    const bytes = new Uint8Array([
+      0x01,
+      ...u32(1016), // TIN Z
+      ...u32(2),
+      ...triangle(triA),
+      ...triangle(triB),
+    ]);
+    expect(decodeWkb(bytes)).toEqual({
+      type: "MultiPolygon",
+      coordinates: [[triA], [triB]],
+    });
+  });
+
+  it("decodes a PolyhedralSurface Z to a MultiPolygon", () => {
+    // Each patch is a Polygon Z (type 1003).
+    const polygonZ = (positions: Array<[number, number, number]>): number[] => [
+      0x01,
+      ...u32(1003),
+      ...u32(1),
+      ...ringBytes(positions),
+    ];
+    const bytes = new Uint8Array([
+      0x01,
+      ...u32(1015), // PolyhedralSurface Z
+      ...u32(2),
+      ...polygonZ(triA),
+      ...polygonZ(triB),
+    ]);
+    expect(decodeWkb(bytes)).toEqual({
+      type: "MultiPolygon",
+      coordinates: [[triA], [triB]],
+    });
+  });
 });
 
 describe("isLikelyGeoPackage", () => {
