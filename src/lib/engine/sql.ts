@@ -172,39 +172,66 @@ function wkbGeometryExpression(geometry: DetectedGeometryColumn): string {
   return `ST_GeomFromWKB(${wkb})`;
 }
 
+/**
+ * Wraps a geometry expression in `ST_Transform` to WGS84 when a non-WGS84
+ * `sourceCrs` was resolved, so the rest of the pipeline (tiles, export) can
+ * assume EPSG:4326. Passes the expression through unchanged when `sourceCrs` is
+ * null (already WGS84, or CRS unknown). `always_xy` keeps lon/lat axis order.
+ *
+ * @param geomExpr - The source geometry SQL expression
+ * @param sourceCrs - `AUTHORITY:CODE` or a WKT string ST_Transform accepts, or null
+ * @returns The (possibly reprojected) geometry expression
+ */
+function reprojectToWgs84Sql(geomExpr: string, sourceCrs: string | null): string {
+  return sourceCrs
+    ? `ST_Transform(${geomExpr}, ${quoteLiteral(sourceCrs)}, 'EPSG:4326', always_xy := true)`
+    : geomExpr;
+}
+
 function createRelationFromGeometrySql(
   relationKind: 'TABLE' | 'VIEW',
   tableName: string,
   reader: string,
   geometry: DetectedGeometryColumn,
+  sourceCrs: string | null = null,
 ): string {
-  if (geometry.encoding === 'geometry') {
+  // A native GEOMETRY column that needs no reprojection keeps the cheap
+  // `* RENAME` form (no per-row expression).
+  if (geometry.encoding === 'geometry' && !sourceCrs) {
     return relationKind === 'TABLE'
       ? createTableSql(tableName, reader, geometry.name)
       : createViewSql(tableName, reader, geometry.name);
   }
-  const geometryColumn = quoteIdent(geometry.name);
+  const rawGeom =
+    geometry.encoding === 'geometry'
+      ? quoteIdent(geometry.name)
+      : wkbGeometryExpression(geometry);
   return (
     `CREATE OR REPLACE ${relationKind} ${quoteIdent(tableName)} AS ` +
-    `SELECT * EXCLUDE (${geometryColumn}), ${wkbGeometryExpression(geometry)} AS geom ` +
+    `SELECT * EXCLUDE (${quoteIdent(geometry.name)}), ` +
+    `${reprojectToWgs84Sql(rawGeom, sourceCrs)} AS geom ` +
     `FROM ${reader}`
   );
 }
 
 /**
- * SQL creating the ingest table from a reader with a detected geometry column.
+ * SQL creating the ingest table from a reader with a detected geometry column,
+ * reprojecting to WGS84 when `sourceCrs` names a non-WGS84 CRS.
  *
  * @param tableName - The table to create
  * @param reader - Reader expression from {@link readerFor}
  * @param geometry - Detected geometry column and encoding
+ * @param sourceCrs - Source CRS to reproject from (`AUTHORITY:CODE` or WKT), or
+ *   null to leave the geometry in its source coordinates
  * @returns The statement text
  */
 export function createTableFromGeometrySql(
   tableName: string,
   reader: string,
   geometry: DetectedGeometryColumn,
+  sourceCrs: string | null = null,
 ): string {
-  return createRelationFromGeometrySql('TABLE', tableName, reader, geometry);
+  return createRelationFromGeometrySql('TABLE', tableName, reader, geometry, sourceCrs);
 }
 
 /**

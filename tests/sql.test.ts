@@ -165,6 +165,43 @@ describe('createTableFromGeometrySql', () => {
       }),
     ).toThrow(/must be validated/);
   });
+
+  it('leaves the geometry unchanged when no source CRS is given', () => {
+    const sql = createTableFromGeometrySql('t1', "ST_Read('f.shp')", {
+      name: 'geom',
+      encoding: 'geometry',
+    });
+    expect(sql).toBe('CREATE OR REPLACE TABLE "t1" AS SELECT * FROM ST_Read(\'f.shp\')');
+  });
+
+  it('reprojects a native geometry column from an AUTHORITY:CODE source CRS', () => {
+    const sql = createTableFromGeometrySql(
+      't1',
+      "ST_Read('f.shp')",
+      { name: 'geom', encoding: 'geometry' },
+      'EPSG:27700',
+    );
+    expect(sql).toBe(
+      'CREATE OR REPLACE TABLE "t1" AS SELECT * EXCLUDE ("geom"), ' +
+        "ST_Transform(\"geom\", 'EPSG:27700', 'EPSG:4326', always_xy := true) AS geom " +
+        "FROM ST_Read('f.shp')",
+    );
+  });
+
+  it('reprojects a WKB geometry column from a WKT source CRS', () => {
+    const sql = createTableFromGeometrySql(
+      't1',
+      "ST_Read('f.shp')",
+      { name: 'geometry', encoding: 'wkb' },
+      'PROJCS["British_National_Grid"]',
+    );
+    expect(sql).toBe(
+      'CREATE OR REPLACE TABLE "t1" AS SELECT * EXCLUDE ("geometry"), ' +
+        'ST_Transform(ST_GeomFromWKB("geometry"), ' +
+        "'PROJCS[\"British_National_Grid\"]', 'EPSG:4326', always_xy := true) AS geom " +
+        "FROM ST_Read('f.shp')",
+    );
+  });
 });
 
 describe('CSV table creation', () => {
