@@ -27,4 +27,7 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
-        run: npx -y npm@latest publish --provenance --access public
+        # Use the Node-bundled npm rather than `npx npm@latest`: a broken
+        # npm@latest release shipped a `provenance` path that fails to resolve
+        # its `sigstore` dependency, breaking the publish.
+        run: npm publish --provenance --access public
