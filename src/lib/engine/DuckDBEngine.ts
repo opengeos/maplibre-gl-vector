@@ -639,7 +639,10 @@ export class DuckDBEngine implements IEngine {
       const sourceCrs =
         options.format === "geoparquet"
           ? null
-          : await this._readSourceCrs(path, await this._prjCompanionWkt(options));
+          : await this._readSourceCrs(
+              gdalPath(options.format, path),
+              await this._prjCompanionWkt(options),
+            );
       try {
         await this._loaded.conn.query(
           createTableFromGeometrySql(tableName, reader, geometryColumn, sourceCrs),
@@ -717,7 +720,7 @@ export class DuckDBEngine implements IEngine {
     const rows = result.toArray().map((row) => row as Record<string, unknown>);
     const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
     const sourceCrs = await this._readSourceCrs(
-      path,
+      gdalPath(options.format, path),
       await this._prjCompanionWkt(options),
     );
 
