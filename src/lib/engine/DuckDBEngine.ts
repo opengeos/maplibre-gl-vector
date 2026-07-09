@@ -46,6 +46,26 @@ import {
 } from "./surfaceWkb";
 
 /**
+ * Whether an `AUTHORITY:CODE` CRS string names WGS84 lon/lat, for which
+ * reprojection to EPSG:4326 is a no-op: EPSG:4326 (2D), EPSG:4979 (3D geographic,
+ * same lat/lon), and OGC:CRS84 (lon/lat order). Skipping the transform for these
+ * keeps the common already-WGS84 case cheap.
+ *
+ * @param crs - An `AUTHORITY:CODE` CRS string
+ * @returns True when the CRS is WGS84 lon/lat
+ */
+function isWgs84AuthCrs(crs: string): boolean {
+  switch (crs.toUpperCase()) {
+    case "EPSG:4326":
+    case "EPSG:4979":
+    case "OGC:CRS84":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Options for creating the DuckDB engine.
  */
 export interface CreateEngineOptions {
@@ -612,9 +632,17 @@ export class DuckDBEngine implements IEngine {
 
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
+      // Reproject the source geometry to WGS84 so the rest of the pipeline
+      // (tiles, export) can assume EPSG:4326. GeoParquet is read via
+      // read_parquet (not GDAL) and carries no ST_Read_Meta CRS, so it is left
+      // in its source coordinates as before.
+      const sourceCrs =
+        options.format === "geoparquet"
+          ? null
+          : await this._readSourceCrs(path, await this._prjCompanionWkt(options));
       try {
         await this._loaded.conn.query(
-          createTableFromGeometrySql(tableName, reader, geometryColumn),
+          createTableFromGeometrySql(tableName, reader, geometryColumn, sourceCrs),
         );
       } catch (error) {
         // DuckDB Spatial's WKB reader rejects surface geometries (TIN /
@@ -688,7 +716,10 @@ export class DuckDBEngine implements IEngine {
     const result = await this._loaded.conn.query(`SELECT * FROM ${wkbReader}`);
     const rows = result.toArray().map((row) => row as Record<string, unknown>);
     const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
-    const sourceCrs = await this._readSourceCrs(path);
+    const sourceCrs = await this._readSourceCrs(
+      path,
+      await this._prjCompanionWkt(options),
+    );
 
     const geojsonName = `${tableName}.surface.geojson`;
     await this._loaded.db.registerFileBuffer(
@@ -713,30 +744,69 @@ export class DuckDBEngine implements IEngine {
   }
 
   /**
-   * Resolves a source's CRS from `ST_Read_Meta` as a string `ST_Transform`
-   * accepts — `AUTHORITY:CODE` when GDAL identified one, otherwise the raw WKT
-   * definition (common for ESRI `.prj` files without an EPSG code), or null when
-   * no usable CRS is present (so reprojection is skipped).
+   * Resolves a source's CRS as a string `ST_Transform` accepts —
+   * `AUTHORITY:CODE` when GDAL identified one, otherwise the raw WKT definition
+   * (common for ESRI `.prj` files without an EPSG code), or null when the source
+   * is already WGS84 or carries no usable CRS (so reprojection is skipped).
+   *
+   * `ST_Read_Meta` is tried first; when it cannot report the CRS the shapefile's
+   * `.prj` sidecar (`prjWkt`) is the fallback. Some duckdb-wasm GDAL/PROJ builds
+   * throw "cannot be formatted as WKT1 TOWGS84 parameters" for a datum whose
+   * transform to WGS84 is grid-based rather than a 7-parameter shift (e.g.
+   * OSGB36 / EPSG:27700), which fails the whole metadata query — the `.prj` text
+   * still lets such a layer reproject.
+   *
+   * @param path - Registered file name the ST_Read_Meta query targets
+   * @param prjWkt - The shapefile `.prj` sidecar WKT, or null when absent
    */
-  private async _readSourceCrs(path: string): Promise<string | null> {
+  private async _readSourceCrs(
+    path: string,
+    prjWkt: string | null = null,
+  ): Promise<string | null> {
     try {
       const result = await this._loaded.conn.query(sourceCrsMetaQuery(path));
       const row = result.toArray()[0] as
         | { auth_name?: unknown; auth_code?: unknown; wkt?: unknown }
         | undefined;
-      if (!row) return null;
-      const authName =
-        typeof row.auth_name === "string" ? row.auth_name.trim() : "";
-      const authCode =
-        row.auth_code != null ? String(row.auth_code).trim() : "";
-      if (authName && authCode) return `${authName.toUpperCase()}:${authCode}`;
-      const wkt = typeof row.wkt === "string" ? row.wkt.trim() : "";
-      return wkt || null;
+      if (row) {
+        const authName =
+          typeof row.auth_name === "string" ? row.auth_name.trim() : "";
+        const authCode =
+          row.auth_code != null ? String(row.auth_code).trim() : "";
+        if (authName && authCode) {
+          const crs = `${authName.toUpperCase()}:${authCode}`;
+          return isWgs84AuthCrs(crs) ? null : crs;
+        }
+        const wkt = typeof row.wkt === "string" ? row.wkt.trim() : "";
+        if (wkt) return wkt;
+      }
+      // ST_Read_Meta reported no CRS: fall back to the `.prj` sidecar.
+      return prjWkt?.trim() || null;
     } catch {
-      // Reprojection is best-effort; without a CRS the layer still loads (in its
-      // source coordinates) rather than failing.
+      // ST_Read_Meta could not materialize the CRS (see the OSGB36 note above).
+      // The `.prj` sidecar still carries it; reprojection is otherwise skipped
+      // and the layer loads in its source coordinates rather than failing.
+      return prjWkt?.trim() || null;
+    }
+  }
+
+  /**
+   * The WKT text of a loose shapefile's `.prj` sidecar, read from
+   * `options.companionFiles`, or null when this is not a shapefile with a
+   * `.prj`. Used as the CRS fallback when `ST_Read_Meta` cannot report it.
+   */
+  private async _prjCompanionWkt(
+    options: IngestOptions,
+  ): Promise<string | null> {
+    if (options.format !== "shapefile" || !options.companionFiles?.length) {
       return null;
     }
+    const prj = options.companionFiles.find((file) =>
+      file.name.toLowerCase().endsWith(".prj"),
+    );
+    if (!prj) return null;
+    const text = (await prj.text()).trim();
+    return text || null;
   }
 
   /**
