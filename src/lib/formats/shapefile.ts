@@ -122,13 +122,13 @@ export function groupShapefileComponents<T extends { name: string }>(
  * @param zip - The raw zip archive bytes.
  * @param baseName - The registration base (the returned path is `${baseName}.shp`).
  * @param register - Registers one file buffer with the database.
- * @returns The registered `.shp` path to hand to ST_Read.
+ * @returns The registered `.shp` path plus the `.prj` WKT (for reprojection).
  */
 export async function registerZippedShapefile(
   zip: Uint8Array,
   baseName: string,
   register: (name: string, bytes: Uint8Array) => Promise<void> | void,
-): Promise<string> {
+): Promise<RegisteredShapefile> {
   const files = unzipSync(zip);
   const shpEntry = Object.keys(files).find(
     (name) => /\.shp$/i.test(name) && !isMacOsMetadataEntry(name),
@@ -139,17 +139,33 @@ export async function registerZippedShapefile(
 
   const base = stripExtension(shpEntry);
   let shpPath = '';
+  let prjWkt: string | null = null;
   for (const [entry, bytes] of Object.entries(files)) {
     // Only this shapefile's sidecars (same base path, any extension), never a
     // macOS AppleDouble shadow of one.
     if (isMacOsMetadataEntry(entry) || stripExtension(entry) !== base) continue;
     const extension = entry.slice(entry.lastIndexOf('.')).toLowerCase();
     const registeredName = `${baseName}${extension}`;
+    // Capture the `.prj` WKT before registering, since registerFileBuffer may
+    // transfer (and detach) the buffer. It is the reprojection-source fallback
+    // when ST_Read_Meta cannot report the CRS (e.g. an OSGB36 grid-shift datum).
+    if (extension === '.prj') {
+      const text = new TextDecoder().decode(bytes).trim();
+      if (text) prjWkt = text;
+    }
     await register(registeredName, bytes);
     if (extension === '.shp') shpPath = registeredName;
   }
 
-  return shpPath;
+  return { shpPath, prjWkt };
+}
+
+/** What {@link registerZippedShapefile} resolves to. */
+export interface RegisteredShapefile {
+  /** The registered `.shp` path to hand to ST_Read. */
+  shpPath: string;
+  /** The `.prj` sidecar's WKT text, or null when the archive carries none. */
+  prjWkt: string | null;
 }
 
 /** One component of a loose shapefile: its lowercased extension and bytes. */

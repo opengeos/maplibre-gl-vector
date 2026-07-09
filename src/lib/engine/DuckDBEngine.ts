@@ -211,6 +211,12 @@ export class DuckDBEngine implements IEngine {
    * `arrayBuffer()` or a remote fetch) only once.
    */
   private _geoPackageBytes = new Map<string | Blob, Promise<Uint8Array>>();
+  /**
+   * The `.prj` WKT of a registered zipped shapefile, keyed by its registered
+   * `.shp` path. A zip carries no `companionFiles`, so this preserves its
+   * projection for the reprojection fallback in {@link _createTable}.
+   */
+  private _prjWktByPath = new Map<string, string>();
   private _sqlJsBaseUrl?: string;
 
   /**
@@ -427,6 +433,7 @@ export class DuckDBEngine implements IEngine {
     }
     this._sharedFiles.clear();
     this._geoPackageBytes.clear();
+    this._prjWktByPath.clear();
     await this._loaded.conn.close().catch(() => undefined);
     await this._loaded.db.terminate().catch(() => undefined);
   }
@@ -467,12 +474,15 @@ export class DuckDBEngine implements IEngine {
     // components are registered individually; readers then open the .shp
     // directly rather than via /vsizip.
     if (options.format === "shapefile" && /\.zip$/i.test(name)) {
-      const shpPath = await registerZippedShapefile(
+      const { shpPath, prjWkt } = await registerZippedShapefile(
         buffer,
         registrationName,
         (componentName, bytes) =>
           this._loaded.db.registerFileBuffer(componentName, bytes),
       );
+      // A zip carries no `companionFiles`, so remember its `.prj` WKT keyed by
+      // the registered path for the reprojection fallback in `_createTable`.
+      if (prjWkt) this._prjWktByPath.set(shpPath, prjWkt);
       this._sharedFiles.set(source, shpPath);
       return shpPath;
     }
@@ -641,7 +651,7 @@ export class DuckDBEngine implements IEngine {
           ? null
           : await this._readSourceCrs(
               gdalPath(options.format, path),
-              await this._prjCompanionWkt(options),
+              await this._prjWkt(options, path),
             );
       try {
         await this._loaded.conn.query(
@@ -721,7 +731,7 @@ export class DuckDBEngine implements IEngine {
     const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
     const sourceCrs = await this._readSourceCrs(
       gdalPath(options.format, path),
-      await this._prjCompanionWkt(options),
+      await this._prjWkt(options, path),
     );
 
     const geojsonName = `${tableName}.surface.geojson`;
@@ -810,6 +820,22 @@ export class DuckDBEngine implements IEngine {
     if (!prj) return null;
     const text = (await prj.text()).trim();
     return text || null;
+  }
+
+  /**
+   * The shapefile `.prj` WKT for the reprojection fallback: the loose
+   * `companionFiles` sidecar, or the `.prj` remembered from a zipped shapefile
+   * (keyed by its registered `.shp` path), or null when there is none.
+   */
+  private async _prjWkt(
+    options: IngestOptions,
+    path: string,
+  ): Promise<string | null> {
+    return (
+      (await this._prjCompanionWkt(options)) ??
+      this._prjWktByPath.get(path) ??
+      null
+    );
   }
 
   /**

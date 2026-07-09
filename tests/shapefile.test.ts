@@ -32,9 +32,14 @@ describe('registerZippedShapefile', () => {
     });
     const { registered, register } = recorder();
 
-    const shpPath = await registerZippedShapefile(zip, 't_vector_1', register);
+    const { shpPath, prjWkt } = await registerZippedShapefile(
+      zip,
+      't_vector_1',
+      register,
+    );
 
     expect(shpPath).toBe('t_vector_1.shp');
+    expect(prjWkt).toBe('prj');
     expect([...registered.keys()].sort()).toEqual([
       't_vector_1.cpg',
       't_vector_1.dbf',
@@ -43,6 +48,23 @@ describe('registerZippedShapefile', () => {
       't_vector_1.shx',
     ]);
     expect(registered.get('t_vector_1.dbf')).toEqual(strToU8('dbf'));
+  });
+
+  it('returns a null prjWkt when the archive has no .prj', async () => {
+    const zip = zipSync({
+      'states.shp': strToU8('shp'),
+      'states.dbf': strToU8('dbf'),
+      'states.shx': strToU8('shx'),
+    });
+    const { register } = recorder();
+
+    const { prjWkt } = await registerZippedShapefile(
+      zip,
+      't_vector_noprj',
+      register,
+    );
+
+    expect(prjWkt).toBeNull();
   });
 
   it('handles a shapefile nested in a subdirectory and ignores unrelated files', async () => {
@@ -54,7 +76,7 @@ describe('registerZippedShapefile', () => {
     });
     const { registered, register } = recorder();
 
-    const shpPath = await registerZippedShapefile(zip, 't_vector_2', register);
+    const { shpPath } = await registerZippedShapefile(zip, 't_vector_2', register);
 
     expect(shpPath).toBe('t_vector_2.shp');
     expect([...registered.keys()].sort()).toEqual([
@@ -77,7 +99,7 @@ describe('registerZippedShapefile', () => {
     });
     const { registered, register } = recorder();
 
-    const shpPath = await registerZippedShapefile(zip, 't_vector_mac', register);
+    const { shpPath } = await registerZippedShapefile(zip, 't_vector_mac', register);
 
     expect(shpPath).toBe('t_vector_mac.shp');
     // Only the real components register; no AppleDouble bytes leak in.
@@ -100,7 +122,7 @@ describe('registerZippedShapefile', () => {
     });
     const { registered, register } = recorder();
 
-    const shpPath = await registerZippedShapefile(zip, 't_vector_dir', register);
+    const { shpPath } = await registerZippedShapefile(zip, 't_vector_dir', register);
 
     expect(shpPath).toBe('t_vector_dir.shp');
     expect([...registered.keys()].sort()).toEqual([
