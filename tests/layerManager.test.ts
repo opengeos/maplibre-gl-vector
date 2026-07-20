@@ -83,6 +83,7 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
     })),
     listLayers: vi.fn(async () => []),
     exportGeoJSON: vi.fn(async () => POLYGON_FC),
+    reprojectGeoJSON: vi.fn(async (collection) => collection),
     prepareTiles: vi.fn(async () => undefined),
     getTile: vi.fn(async () => new Uint8Array(0)),
     dropTable: vi.fn(async () => undefined),
@@ -166,6 +167,60 @@ describe('LayerManager GeoJSON path', () => {
     expect(map.fitBounds).toHaveBeenCalled();
     expect(engine.ingest).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith('layeradded', expect.objectContaining({ layer: expect.anything() }));
+  });
+
+  it('reprojects a GeoJSON that declares a non-WGS84 crs member', async () => {
+    // A projected FeatureCollection (metres) tagged with a legacy `crs` member.
+    const projected = {
+      type: 'FeatureCollection',
+      crs: { type: 'name', properties: { name: 'urn:ogc:def:crs:EPSG::26911' } },
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [455367, 5278215] },
+          properties: { class: 255 },
+        },
+      ],
+    };
+    const wgs84 = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-117.59, 47.65] },
+          properties: { class: 255 },
+        },
+      ],
+    };
+    const engine = createMockEngine({
+      reprojectGeoJSON: vi.fn(async () => wgs84 as FeatureCollection),
+    });
+    const { manager, map } = createManager({}, engine);
+
+    const info = await manager.addData(projected as FeatureCollection, { id: 'utm' });
+
+    // The parsed EPSG code drives the reprojection, and the rendered source is
+    // the WGS84 collection (so its bbox is valid lon/lat, not metres).
+    expect(engine.reprojectGeoJSON).toHaveBeenCalledWith(projected, 'EPSG:26911');
+    expect(info.renderMode).toBe('geojson');
+    expect(info.bbox).toEqual([-117.59, 47.65, -117.59, 47.65]);
+    expect(map.addSource).toHaveBeenCalledWith(
+      'utm-source',
+      expect.objectContaining({
+        data: expect.objectContaining({
+          features: [expect.objectContaining({ geometry: { type: 'Point', coordinates: [-117.59, 47.65] } })],
+        }),
+      }),
+    );
+  });
+
+  it('does not reproject a plain WGS84 GeoJSON', async () => {
+    const engine = createMockEngine();
+    const { manager } = createManager({}, engine);
+
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+
+    expect(engine.reprojectGeoJSON).not.toHaveBeenCalled();
   });
 
   it('rebuilds the polygon layers when 3D extrusion is toggled', async () => {

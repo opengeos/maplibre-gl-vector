@@ -36,7 +36,12 @@ import {
   sourceIdFor,
 } from '../render/mapSources';
 import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../tiles/protocol';
-import { collectFieldNames, summarizeFeatureCollection, toFeatureCollection } from '../utils/geometry';
+import {
+  collectFieldNames,
+  crsFromGeoJSON,
+  summarizeFeatureCollection,
+  toFeatureCollection,
+} from '../utils/geometry';
 import { generateId } from '../utils/helpers';
 import { getMaplibre } from '../utils/maplibre';
 import { assertRemoteFileSupported } from '../utils/remote';
@@ -873,7 +878,9 @@ export class LayerManager {
     options: VectorLayerOptions,
     prefetched?: { collection: FeatureCollection; byteSize?: number },
   ): Promise<void> {
-    const { collection, byteSize } = prefetched ?? (await this._resolveGeoJSON(record.source));
+    const resolved = prefetched ?? (await this._resolveGeoJSON(record.source));
+    const { byteSize } = resolved;
+    let collection = resolved.collection;
     const summary = summarizeFeatureCollection(collection);
 
     record.info.featureCount = summary.featureCount;
@@ -891,8 +898,29 @@ export class LayerManager {
     });
 
     if (mode === 'tiles') {
+      // The tile path re-reads the original source through the DuckDB engine,
+      // which reprojects to WGS84 from the source metadata as part of ingest, so
+      // a projected collection is handled there without the in-memory reproject
+      // below (and its metres bbox above is replaced by the engine's).
       await this._presentTiles(record);
       return;
+    }
+
+    // A projected GeoJSON declares its CRS via a legacy `crs` member and carries
+    // raw projected coordinates (metres) that MapLibre cannot render, so spin up
+    // the DuckDB engine (only in this case, keeping the WGS84 fast path
+    // engine-free) and reproject to EPSG:4326 before rendering. Without this the
+    // raw coordinates trip MapLibre's "Invalid LngLat" guard in the fitBounds
+    // that follows, and the panel is left stuck loading.
+    const sourceCrs = crsFromGeoJSON(collection);
+    if (sourceCrs) {
+      this._emit('loading', { message: `Reprojecting ${record.info.name} to WGS84...` });
+      const engine = await this._getEngine();
+      collection = await engine.reprojectGeoJSON(collection, sourceCrs);
+      const reprojectedSummary = summarizeFeatureCollection(collection);
+      // Replace the projected-metres bbox with the WGS84 extent so the caller's
+      // fitBounds receives valid lon/lat.
+      record.info.bbox = reprojectedSummary.bbox;
     }
 
     record.info.renderMode = 'geojson';

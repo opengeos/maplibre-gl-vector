@@ -3,6 +3,7 @@ import type { FeatureCollection } from 'geojson';
 import {
   classifyGeometryType,
   collectFieldNames,
+  crsFromGeoJSON,
   mergeGeometryCategory,
   summarizeFeatureCollection,
   toFeatureCollection,
@@ -106,6 +107,44 @@ describe('summarizeFeatureCollection', () => {
     });
     expect(summary.featureCount).toBe(1);
     expect(summary.bbox).toBeUndefined();
+  });
+});
+
+describe('crsFromGeoJSON', () => {
+  const withCrs = (name: string): FeatureCollection =>
+    ({
+      type: 'FeatureCollection',
+      crs: { type: 'name', properties: { name } },
+      features: [],
+    }) as FeatureCollection;
+
+  it('reads a projected CRS from the URN form', () => {
+    expect(crsFromGeoJSON(withCrs('urn:ogc:def:crs:EPSG::26911'))).toBe('EPSG:26911');
+  });
+
+  it('reads a projected CRS from the short form', () => {
+    expect(crsFromGeoJSON(withCrs('EPSG:3857'))).toBe('EPSG:3857');
+  });
+
+  it('is case-insensitive', () => {
+    expect(crsFromGeoJSON(withCrs('epsg:32617'))).toBe('EPSG:32617');
+  });
+
+  it.each([
+    'urn:ogc:def:crs:EPSG::4326',
+    'EPSG:4326',
+    'EPSG:4979',
+    'urn:ogc:def:crs:OGC:1.3:CRS84',
+  ])('returns null for the WGS84 alias %s', (name) => {
+    expect(crsFromGeoJSON(withCrs(name))).toBeNull();
+  });
+
+  it('returns null when there is no crs member', () => {
+    expect(crsFromGeoJSON({ type: 'FeatureCollection', features: [] })).toBeNull();
+  });
+
+  it('returns null for an unrecognizable crs name', () => {
+    expect(crsFromGeoJSON(withCrs('some-custom-crs'))).toBeNull();
   });
 });
 
