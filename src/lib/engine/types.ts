@@ -82,6 +82,19 @@ export interface IEngine {
   exportGeoJSON(tableName: string): Promise<FeatureCollection>;
 
   /**
+   * Reprojects an in-memory GeoJSON FeatureCollection to WGS84 (EPSG:4326)
+   * using DuckDB Spatial's PROJ backend, for a collection whose coordinates are
+   * in `sourceCrs` (a projected CRS declared by a legacy `crs` member). Only the
+   * geometries are transformed; every feature's original properties are kept
+   * verbatim.
+   *
+   * @param collection - The FeatureCollection to reproject (coordinates in `sourceCrs`)
+   * @param sourceCrs - The source CRS as an `AUTHORITY:CODE` string (e.g. `EPSG:26911`)
+   * @returns The FeatureCollection with geometries reprojected to EPSG:4326
+   */
+  reprojectGeoJSON(collection: FeatureCollection, sourceCrs: string): Promise<FeatureCollection>;
+
+  /**
    * Prepares a table for dynamic tile generation (Web Mercator geometry
    * column and spatial index).
    *

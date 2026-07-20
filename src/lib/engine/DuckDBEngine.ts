@@ -54,6 +54,14 @@ import {
  * @param crs - An `AUTHORITY:CODE` CRS string
  * @returns True when the CRS is WGS84 lon/lat
  */
+/**
+ * Property name that carries a feature's source index through the reproject
+ * round-trip in {@link DuckDBEngine.reprojectGeoJSON}, so each reprojected
+ * geometry can be matched back to its original feature. Prefixed to avoid
+ * colliding with a real attribute in the input.
+ */
+const FID_COLUMN = "__mgv_reproject_fid";
+
 function isWgs84AuthCrs(crs: string): boolean {
   switch (crs.toUpperCase()) {
     case "EPSG:4326":
@@ -218,6 +226,8 @@ export class DuckDBEngine implements IEngine {
    */
   private _prjWktByPath = new Map<string, string>();
   private _sqlJsBaseUrl?: string;
+  /** Monotonic suffix so concurrent reprojections register distinct files. */
+  private _reprojectSeq = 0;
 
   /**
    * Creates an engine wrapper over a loaded DuckDB instance.
@@ -324,6 +334,55 @@ export class DuckDBEngine implements IEngine {
         return { type: "Feature", geometry, properties };
       });
       return { type: "FeatureCollection", features };
+    });
+  }
+
+  /** @inheritdoc */
+  reprojectGeoJSON(
+    collection: FeatureCollection,
+    sourceCrs: string,
+  ): Promise<FeatureCollection> {
+    return this._queue.enqueue(async () => {
+      const features = collection.features;
+      // Feed DuckDB only the geometries, each tagged with its feature index, so
+      // the reprojected geometry can be zipped back to the original feature's
+      // properties without round-tripping arbitrary (possibly nested) property
+      // values through GDAL's GeoJSON reader.
+      const geomsOnly: FeatureCollection = {
+        type: "FeatureCollection",
+        features: features.map((feature, index) => ({
+          type: "Feature",
+          properties: { [FID_COLUMN]: index },
+          geometry: feature.geometry,
+        })),
+      };
+      const geojsonName = `reproject_${this._reprojectSeq++}.geojson`;
+      await this._loaded.db.registerFileBuffer(
+        geojsonName,
+        new TextEncoder().encode(JSON.stringify(geomsOnly)),
+      );
+      try {
+        const result = await this._loaded.conn.query(
+          `SELECT ${quoteIdent(FID_COLUMN)} AS fid, ` +
+            `ST_AsGeoJSON(ST_Transform(geom, ${quoteLiteral(sourceCrs)}, 'EPSG:4326', always_xy := true)) AS __geojson ` +
+            `FROM ST_Read(${quoteLiteral(geojsonName)}) WHERE geom IS NOT NULL`,
+        );
+        // Map each reprojected geometry back onto its source feature by index, so
+        // the result is robust to DuckDB returning rows out of source order.
+        const reprojected = new Map<number, Geometry>();
+        for (const row of result.toArray()) {
+          reprojected.set(Number(row.fid), JSON.parse(String(row.__geojson)) as Geometry);
+        }
+        return {
+          type: "FeatureCollection",
+          features: features.map((feature, index) => ({
+            ...feature,
+            geometry: reprojected.get(index) ?? feature.geometry,
+          })),
+        };
+      } finally {
+        await this._loaded.db.dropFile(geojsonName).catch(() => undefined);
+      }
     });
   }
 

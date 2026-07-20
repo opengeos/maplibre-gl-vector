@@ -61,6 +61,37 @@ export function toFeatureCollection(data: GeoJSON): FeatureCollection {
   };
 }
 
+/**
+ * Reads the source CRS declared by a GeoJSON `crs` member and returns it as an
+ * `EPSG:<code>` string to reproject from, or null when the collection is already
+ * WGS84 lon/lat (or carries no usable CRS member).
+ *
+ * RFC 7946 mandates WGS84 for GeoJSON, but the pre-RFC form with a top-level
+ * `"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::26911" } }`
+ * is still emitted by GDAL/QGIS exports of projected data. Such a collection
+ * carries raw projected coordinates (metres) that MapLibre cannot render, so the
+ * caller reprojects to WGS84 before adding the layer. Both the URN form
+ * (`urn:ogc:def:crs:EPSG::26911`) and the short form (`EPSG:26911`) are handled.
+ *
+ * WGS84 aliases (`EPSG:4326`, `EPSG:4979`, and OGC `CRS84`) return null so the
+ * already-WGS84 common case skips the reprojection round-trip entirely.
+ *
+ * @param collection - A FeatureCollection that may carry a legacy `crs` member
+ * @returns An `EPSG:<code>` string to reproject from, or null when none is needed
+ */
+export function crsFromGeoJSON(collection: FeatureCollection): string | null {
+  const name = (collection as { crs?: { properties?: { name?: unknown } } }).crs?.properties?.name;
+  if (typeof name !== 'string') return null;
+  const upper = name.toUpperCase();
+  // CRS84 (lon/lat) and the WGS84 EPSG codes are already the coordinates
+  // MapLibre expects, so no reprojection is required.
+  if (upper.includes('CRS84') || /EPSG:+(4326|4979)\b/.test(upper)) return null;
+  // Match the trailing EPSG code in either the URN (`EPSG::26911`) or short
+  // (`EPSG:26911`) form; the `:+` tolerates the URN's double colon.
+  const match = upper.match(/EPSG:+(\d+)/);
+  return match ? `EPSG:${match[1]}` : null;
+}
+
 function extendBboxWithPositions(bbox: Bbox, coords: unknown): void {
   if (!Array.isArray(coords)) return;
   if (typeof coords[0] === 'number') {
