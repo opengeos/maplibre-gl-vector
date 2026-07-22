@@ -101,6 +101,36 @@ export type VectorFileOpener = () =>
   | Promise<VectorFileSelection[] | null | undefined>;
 
 /**
+ * What the user is choosing between when a multi-layer container is loaded.
+ */
+export interface VectorLayerSelectionContext {
+  /** Display name of the container (file name or URL). */
+  sourceName: string;
+  /** Detected format of the container (e.g. `'geopackage'`). */
+  format: VectorFormat;
+}
+
+/**
+ * Chooses which layers of a multi-layer container to load.
+ *
+ * Called by `addData` once a container (a GeoPackage with several feature
+ * tables, a multi-layer GDAL source, ...) reports more than one layer and the
+ * caller named neither {@link VectorLayerOptions.sourceLayer} nor
+ * {@link VectorLayerOptions.sourceLayers}. Return the subset to load, an empty
+ * array to load nothing (the load rejects with a
+ * `VectorLayerSelectionCancelledError`), or `null`/`undefined` to load every
+ * layer. Names the container does not contain are ignored.
+ *
+ * Set it through {@link VectorControlOptions.selectLayers} to replace the
+ * built-in picker with a host dialog, or set that option to `false` to load
+ * every layer without prompting.
+ */
+export type VectorLayerSelector = (
+  layers: string[],
+  context: VectorLayerSelectionContext,
+) => string[] | null | undefined | Promise<string[] | null | undefined>;
+
+/**
  * Thresholds that trip `'auto'` render mode from GeoJSON to dynamic tiles.
  */
 export interface AutoThreshold {
@@ -326,6 +356,20 @@ export interface VectorControlOptions {
    * Drag-and-drop onto the zone still uses the browser's dropped files.
    */
   fileOpener?: VectorFileOpener;
+
+  /**
+   * How the layers of a multi-layer container (a GeoPackage with several
+   * feature tables, a multi-layer GDAL source, ...) are chosen.
+   *
+   * Unset, the control opens its built-in modal picker over the map with every
+   * layer preselected, so the user can uncheck the ones they do not want
+   * instead of having the whole container added to the map. Supply a
+   * {@link VectorLayerSelector} to replace it with a host dialog, or set
+   * `false` to skip the prompt and load every layer (the behavior before the
+   * picker existed). A per-load {@link VectorLayerOptions.sourceLayers} wins
+   * over this.
+   */
+  selectLayers?: VectorLayerSelector | false;
 }
 
 /**
@@ -508,6 +552,19 @@ export interface VectorLayerOptions {
    * Named layer inside multi-layer containers (e.g. a GeoPackage table)
    */
   sourceLayer?: string;
+
+  /**
+   * Layers to load from a multi-layer container, as one vector layer each.
+   *
+   * Skips the picker (and {@link VectorControlOptions.selectLayers}), so a
+   * host that already knows the subset — restoring a saved project, driving
+   * the control from its own UI — loads it without prompting. Names are
+   * matched case-insensitively against the container's layers and loaded in
+   * the container's own order; unknown names are ignored, and a list matching
+   * nothing is an error. Ignored when {@link sourceLayer} names a single layer
+   * or the source is not a multi-layer container.
+   */
+  sourceLayers?: string[];
 
   /**
    * Explicit format when it cannot be detected from the file name/URL

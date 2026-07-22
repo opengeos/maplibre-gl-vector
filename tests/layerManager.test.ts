@@ -9,6 +9,7 @@ import {
 } from '../src/lib/core/LayerManager';
 import type { IEngine } from '../src/lib/engine/types';
 import { hasTileProvider, loadTile } from '../src/lib/tiles/protocol';
+import { isVectorLayerSelectionCancelled } from '../src/lib/core/errors';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -92,8 +93,15 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
   };
 }
 
-function createManager(options = {}, engine: IEngine = createMockEngine()) {
-  const map = createMockMap();
+function createManager(
+  options = {},
+  engine: IEngine = createMockEngine(),
+  mapOverrides: Record<string, unknown> = {},
+) {
+  // No getContainer by default: the built-in multi-layer picker needs one, so
+  // omitting it keeps the unrelated tests on the load-everything path instead
+  // of blocking on a modal.
+  const map = { ...createMockMap(), ...mapOverrides };
   const emit = vi.fn();
   const manager = new LayerManager({
     map: map as unknown as MapLibreMap,
@@ -525,6 +533,158 @@ describe('LayerManager engine path', () => {
     await manager.addData(new File(['x'], 'city.gpkg'), { id: 'one', sourceLayer: 'roads' });
     expect(engine.listLayers).not.toHaveBeenCalled();
     expect(manager.getLayers()).toHaveLength(1);
+  });
+
+  it('loads only the layers named by sourceLayers', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings', 'parks']),
+    });
+    const { manager } = createManager({}, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), {
+      id: 'city',
+      // Out of order and mis-cased on purpose: the load follows the
+      // container's order and matches names case-insensitively.
+      sourceLayers: ['PARKS', 'roads'],
+    });
+
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads', 'parks']);
+  });
+
+  it('rejects a sourceLayers list that matches no layer in the container', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine);
+
+    await expect(
+      manager.addData(new File(['x'], 'city.gpkg'), { id: 'city', sourceLayers: ['rivers'] }),
+    ).rejects.toThrow(/rivers.*roads, buildings/s);
+    expect(manager.getLayers()).toHaveLength(0);
+  });
+
+  it('loads the subset a host selectLayers callback returns', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings', 'parks']),
+    });
+    const selectLayers = vi.fn(async () => ['parks', 'roads']);
+    const { manager } = createManager({ selectLayers }, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+
+    expect(selectLayers).toHaveBeenCalledWith(
+      ['roads', 'buildings', 'parks'],
+      { sourceName: 'city', format: 'geopackage' },
+    );
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads', 'parks']);
+  });
+
+  it('loads every layer when the selector returns null', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({ selectLayers: () => null }, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+    expect(manager.getLayers()).toHaveLength(2);
+  });
+
+  it('cancels the load when the selector returns nothing', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager, emit } = createManager({ selectLayers: () => [] }, engine);
+
+    const error = await manager
+      .addData(new File(['x'], 'city.gpkg'), { id: 'city' })
+      .then(() => null, (err: unknown) => err);
+
+    expect(isVectorLayerSelectionCancelled(error)).toBe(true);
+    expect(manager.getLayers()).toHaveLength(0);
+    // A dismissed picker is not a failure, so no error event reaches the panel.
+    expect(emit).not.toHaveBeenCalledWith('error', expect.anything());
+  });
+
+  it('sourceLayers wins over the selector', async () => {
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const selectLayers = vi.fn(() => ['buildings']);
+    const { manager } = createManager({ selectLayers }, engine);
+
+    await manager.addData(new File(['x'], 'city.gpkg'), {
+      id: 'city',
+      sourceLayers: ['roads'],
+    });
+
+    expect(selectLayers).not.toHaveBeenCalled();
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads']);
+  });
+
+  it('opens the built-in picker over the map and loads what the user checks', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine, { getContainer: () => container });
+
+    const pending = manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+    // Let listLayers and the picker render before inspecting the DOM.
+    await vi.waitFor(() => {
+      expect(container.querySelector('.vector-control-layer-picker')).not.toBeNull();
+    });
+
+    const boxes = Array.from(
+      container.querySelectorAll<HTMLInputElement>('.vector-control-layer-picker-item input'),
+    );
+    boxes[0].checked = false;
+    boxes[0].dispatchEvent(new Event('change'));
+    Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.startsWith('Load'))!
+      .click();
+
+    await pending;
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['buildings']);
+    document.body.innerHTML = '';
+  });
+
+  it('skips the picker entirely when selectLayers is false', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({ selectLayers: false }, engine, {
+      getContainer: () => container,
+    });
+
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+
+    expect(container.querySelector('.vector-control-layer-picker')).toBeNull();
+    expect(manager.getLayers()).toHaveLength(2);
+    document.body.innerHTML = '';
+  });
+
+  it('closes an open picker when the manager is disposed', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({}, engine, { getContainer: () => container });
+
+    const pending = manager
+      .addData(new File(['x'], 'city.gpkg'), { id: 'city' })
+      .then(() => null, (err: unknown) => err);
+    await vi.waitFor(() => {
+      expect(container.querySelector('.vector-control-layer-picker')).not.toBeNull();
+    });
+
+    manager.dispose();
+    expect(isVectorLayerSelectionCancelled(await pending)).toBe(true);
+    expect(container.querySelector('.vector-control-layer-picker')).toBeNull();
+    document.body.innerHTML = '';
   });
 
   it('reports tile generation progress through loading events', async () => {

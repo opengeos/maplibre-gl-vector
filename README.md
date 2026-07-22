@@ -199,12 +199,37 @@ Extensions without a dedicated reader are passed straight to `ST_Read`, so any v
 
 ### Multi-layer datasets
 
-Containers that hold several layers (a GeoPackage with multiple tables, KML folders, GML/DXF layers, ...) are expanded automatically: the control enumerates the layers with `ST_Read_Meta` and adds **one vector layer per source layer**, each with its own panel entry, visibility toggle, and style. The map zooms once to the combined extent, and the underlying file is registered with DuckDB only once.
+Containers that hold several layers (a GeoPackage with multiple tables, KML folders, GML/DXF layers, ...) are expanded into **one vector layer per source layer**, each with its own panel entry, visibility toggle, and style. The control enumerates the layers with `ST_Read_Meta` (with sql.js for GeoPackages), the map zooms once to the combined extent, and the underlying file is registered with DuckDB only once.
 
-To load just one layer from a container, pass `sourceLayer`:
+Because a container can hold far more layers than the user wants on the map, loading one opens a **layer picker**: a modal over the map listing every layer with a checkbox, all preselected. Confirming loads the checked layers; dismissing it loads nothing and rejects the `addData` promise with a `VectorLayerSelectionCancelledError` (nothing failed, so no `'error'` event is emitted -- use `isVectorLayerSelectionCancelled(error)` to tell the two apart).
+
+```typescript
+import { isVectorLayerSelectionCancelled } from "maplibre-gl-vector";
+
+try {
+  await control.addData("city.gpkg");
+} catch (error) {
+  if (!isVectorLayerSelectionCancelled(error)) throw error;
+}
+```
+
+To load just one layer from a container, pass `sourceLayer`; to load a known subset without prompting, pass `sourceLayers`. Both skip the picker, so a host restoring a saved project never prompts:
 
 ```typescript
 await control.addData("city.gpkg", { sourceLayer: "roads" });
+await control.addData("city.gpkg", { sourceLayers: ["roads", "parks"] });
+```
+
+A host can replace the picker with its own dialog, or turn the prompt off, through the control-level `selectLayers` option:
+
+```typescript
+// Host dialog: return the chosen names, [] to cancel, or null to load all.
+new VectorControl({
+  selectLayers: (layers, { sourceName }) => myLayerDialog(sourceName, layers),
+});
+
+// No prompt: load every layer, as releases before 0.10 did.
+new VectorControl({ selectLayers: false });
 ```
 
 Single-layer formats (GeoJSON, GeoParquet, CSV) skip the enumeration entirely. CSV files need either a WKT column (`geometry`, `wkt`, `geom`, `the_geom`, `wkb_geometry`) or lon/lat columns (`longitude`/`latitude`, `lon`/`lat`, `lng`/`lat`, `x`/`y`).
@@ -272,6 +297,7 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `sampleDataLabel` | `string` | `'Load sample data...'` | Placeholder shown in the sample-data dropdown |
 | `duckdbWasmBaseUrl` | `string` | jsDelivr | Base URL to load DuckDB-WASM from instead of the CDN (see [Self-hosting DuckDB-WASM](#self-hosting-duckdb-wasm)) |
 | `fileOpener` | `() => VectorFileSelection[] \| null \| Promise<...>` | - | Replace the panel's built-in file browse with a host picker. Each returned selection's `sourcePath` is echoed on the layer's `source` so a desktop host can persist and re-read local files (see [Restorable local files](#restorable-local-files)) |
+| `selectLayers` | `VectorLayerSelector \| false` | built-in picker | How the layers of a multi-layer container are chosen: a host callback, or `false` to load every layer without prompting (see [Multi-layer datasets](#multi-layer-datasets)) |
 
 #### Data Methods
 
@@ -299,7 +325,8 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `opacity` | `number` | `1` | Initial master opacity (0-1) multiplied into every style opacity |
 | `fitBounds` | `boolean` | `true` | Zoom to the layer after loading |
 | `style` | `Partial<VectorLayerStyle>` | defaults | Initial style overrides |
-| `sourceLayer` | `string` | all layers | Load only this layer from a multi-layer container (default expands every layer) |
+| `sourceLayer` | `string` | - | Load only this layer from a multi-layer container (skips the picker) |
+| `sourceLayers` | `string[]` | - | Load this subset of a multi-layer container's layers, one vector layer each (skips the picker) |
 | `format` | `VectorFormat` | detected | Explicit format override |
 | `beforeId` | `string` | control option | Map layer id this layer is inserted before |
 | `picker` | `boolean` | control option | Attribute popup on feature click |
