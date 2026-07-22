@@ -31,6 +31,7 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, "src/index.ts"),
         react: resolve(__dirname, "src/react.ts"),
+        errors: resolve(__dirname, "src/errors.ts"),
       },
       name: "MaplibreGLVector",
       formats: ["es", "cjs"],

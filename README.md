@@ -204,7 +204,9 @@ Containers that hold several layers (a GeoPackage with multiple tables, KML fold
 Because a container can hold far more layers than the user wants on the map, loading one opens a **layer picker**: a modal over the map listing every layer with a checkbox, all preselected. Confirming loads the checked layers; dismissing it loads nothing and rejects the `addData` promise with a `VectorLayerSelectionCancelledError` (nothing failed, so no `'error'` event is emitted -- use `isVectorLayerSelectionCancelled(error)` to tell the two apart).
 
 ```typescript
-import { isVectorLayerSelectionCancelled } from "maplibre-gl-vector";
+// `maplibre-gl-vector/errors` is a standalone entry point, so a host that
+// lazy-loads the control does not pull the engine bundle in just to import it.
+import { isVectorLayerSelectionCancelled } from "maplibre-gl-vector/errors";
 
 try {
   await control.addData("city.gpkg");
