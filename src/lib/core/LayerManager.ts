@@ -857,11 +857,15 @@ export class LayerManager {
     });
 
     const infos: VectorLayerInfo[] = [];
+    // The container-level selection is already resolved, so it is dropped from
+    // the per-layer options; each sub-load names its single `sourceLayer`.
+    const layerOptions: VectorLayerOptions = { ...options };
+    delete layerOptions.sourceLayers;
     for (const layerName of selected) {
       const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       infos.push(
         await this.addData(source, {
-          ...options,
+          ...layerOptions,
           id: subId,
           name: layerName,
           sourceLayer: layerName,
