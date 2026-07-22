@@ -3,6 +3,10 @@ import './lib/styles/vector-control.css';
 
 // Main entry point - Core exports
 export { VectorControl } from './lib/core/VectorControl';
+export {
+  VectorLayerSelectionCancelledError,
+  isVectorLayerSelectionCancelled,
+} from './lib/core/errors';
 export { DEFAULT_STYLE } from './lib/render/styleBuilder';
 export { DEFAULT_AUTO_THRESHOLD } from './lib/render/renderMode';
 
@@ -22,6 +26,8 @@ export type {
   VectorFormat,
   VectorLayerInfo,
   VectorLayerOptions,
+  VectorLayerSelectionContext,
+  VectorLayerSelector,
   VectorLayerStyle,
   VectorSampleDataset,
   VectorSourceDescriptor,

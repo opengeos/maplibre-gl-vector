@@ -10,6 +10,9 @@
     "*": {
       "react": [
         "./dist/types/react.d.ts"
+      ],
+      "errors": [
+        "./dist/types/errors.d.ts"
       ]
     }
   },
@@ -32,6 +35,16 @@
       "require": {
         "types": "./dist/types/react.d.cts",
         "default": "./dist/react.cjs"
+      }
+    },
+    "./errors": {
+      "import": {
+        "types": "./dist/types/errors.d.ts",
+        "default": "./dist/errors.mjs"
+      },
+      "require": {
+        "types": "./dist/types/errors.d.cts",
+        "default": "./dist/errors.cjs"
       }
     },
     "./style.css": "./dist/maplibre-gl-vector.css"

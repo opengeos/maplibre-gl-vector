@@ -8,7 +8,10 @@ import type {
   VectorLayerInfo,
   VectorLayerOptions,
   VectorLayerStyle,
+  VectorLayerSelector,
 } from './types';
+import { VectorLayerSelectionCancelledError } from './errors';
+import { openLayerPicker, type LayerPickerHandle } from '../ui/layerPicker';
 import type { EngineProvider } from '../engine/types';
 import type { VectorSourceDescriptor } from './types';
 import { detectSource } from '../formats/detect';
@@ -179,6 +182,9 @@ export class LayerManager {
   private _popupOwnerId?: string;
   private _pendingTiles = 0;
   private _tileStatusTimer?: ReturnType<typeof setTimeout>;
+  // Multi-layer pickers currently on screen (or queued), so dispose() can
+  // close them instead of orphaning a modal in the map container.
+  private _openPickers = new Set<LayerPickerHandle>();
 
   /**
    * Creates a layer manager.
@@ -789,6 +795,10 @@ export class LayerManager {
       if (record.providerKey) unregisterTileProvider(record.providerKey);
     }
     this._records.clear();
+    // A picker still on screen belongs to the map container, which outlives
+    // the control; close it so no modal is left over the map.
+    for (const picker of this._openPickers) picker.close();
+    this._openPickers.clear();
     this._popup?.remove();
     this._popup = undefined;
     if (this._tileStatusTimer) {
@@ -798,12 +808,19 @@ export class LayerManager {
   }
 
   /**
-   * Expands a multi-layer container into one vector layer per source
-   * layer, when the source is engine-readable, no sourceLayer was
+   * Expands a multi-layer container into one vector layer per selected
+   * source layer, when the source is engine-readable, no sourceLayer was
    * requested, and the container reports more than one layer.
+   *
+   * Which layers those are comes from {@link VectorLayerOptions.sourceLayers}
+   * when the caller named them, otherwise from the layer selector (the
+   * built-in picker unless the host replaced or disabled it), otherwise all
+   * of them.
    *
    * @returns The first created layer's info, or null when the source
    *   is single-layer (callers continue with the normal flow)
+   * @throws VectorLayerSelectionCancelledError when the user dismissed the
+   *   picker without choosing a layer.
    */
   private async _maybeExpandLayers(
     source: VectorDataSource,
@@ -829,16 +846,26 @@ export class LayerManager {
     });
     if (layerNames.length <= 1) return null;
 
+    const sourceName = options.name ?? detected.name;
+    const selected = await this._selectContainerLayers(layerNames, options, detected, sourceName);
+
     this._emit('loading', {
-      message: `Loading ${layerNames.length} layers from ${options.name ?? detected.name}...`,
+      message:
+        selected.length === 1
+          ? `Loading 1 layer from ${sourceName}...`
+          : `Loading ${selected.length} layers from ${sourceName}...`,
     });
 
     const infos: VectorLayerInfo[] = [];
-    for (const layerName of layerNames) {
+    // The container-level selection is already resolved, so it is dropped from
+    // the per-layer options; each sub-load names its single `sourceLayer`.
+    const layerOptions: VectorLayerOptions = { ...options };
+    delete layerOptions.sourceLayers;
+    for (const layerName of selected) {
       const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       infos.push(
         await this.addData(source, {
-          ...options,
+          ...layerOptions,
           id: subId,
           name: layerName,
           sourceLayer: layerName,
@@ -863,6 +890,76 @@ export class LayerManager {
     }
 
     return infos[0];
+  }
+
+  /**
+   * Resolves which layers of a multi-layer container to load.
+   *
+   * An explicit `sourceLayers` list wins; otherwise the layer selector runs
+   * (the built-in modal picker unless the host replaced it, or `false`
+   * disabled prompting); otherwise every layer is loaded. Whatever the source,
+   * the result is intersected with the container's real layers and ordered by
+   * the container, so a selector cannot invent a layer or reorder the load.
+   *
+   * @throws VectorLayerSelectionCancelledError when the selector returned an
+   *   empty selection (the user dismissed the picker).
+   */
+  private async _selectContainerLayers(
+    layerNames: string[],
+    options: VectorLayerOptions,
+    detected: { format: VectorLayerInfo['format'] },
+    sourceName: string,
+  ): Promise<string[]> {
+    const inContainerOrder = (names: readonly string[]): string[] => {
+      const wanted = new Set(names.map((name) => name.toLowerCase()));
+      return layerNames.filter((name) => wanted.has(name.toLowerCase()));
+    };
+
+    if (options.sourceLayers) {
+      const requested = inContainerOrder(options.sourceLayers);
+      if (requested.length === 0) {
+        throw new Error(
+          `None of the requested layers (${options.sourceLayers.join(', ')}) exist in ` +
+            `${sourceName}. Available layers: ${layerNames.join(', ')}.`,
+        );
+      }
+      return requested;
+    }
+
+    const selector = this._layerSelector();
+    if (!selector) return layerNames;
+
+    const chosen = await selector(layerNames, { sourceName, format: detected.format });
+    // null/undefined means "no opinion": keep the load-everything default so a
+    // host selector that only handles some formats can defer on the rest.
+    if (chosen == null) return layerNames;
+    const selected = inContainerOrder(chosen);
+    if (selected.length === 0) {
+      throw new VectorLayerSelectionCancelledError(
+        `No layers were selected from ${sourceName}.`,
+      );
+    }
+    return selected;
+  }
+
+  /**
+   * The layer selector in force: the host's when it supplied one, none when it
+   * set `selectLayers: false` (load every layer), else the built-in modal
+   * picker rendered over the map container.
+   */
+  private _layerSelector(): VectorLayerSelector | null {
+    const configured = this._options.selectLayers;
+    if (configured === false) return null;
+    if (configured) return configured;
+    return (layers, context) => {
+      const container = this._map.getContainer?.();
+      // No container to render into (a headless/mock map): fall back to
+      // loading every layer rather than blocking on a modal nobody can see.
+      if (!container) return null;
+      const picker = openLayerPicker({ container, layers, sourceName: context.sourceName });
+      this._openPickers.add(picker);
+      return picker.selection.finally(() => this._openPickers.delete(picker));
+    };
   }
 
   /**

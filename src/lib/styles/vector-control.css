@@ -9,7 +9,8 @@
 
 .vector-control,
 .vector-control-panel,
-.vector-control-popup {
+.vector-control-popup,
+.vector-control-layer-picker {
   --vc-bg: #fff;
   --vc-text: #333;
   --vc-text-strong: #1f2a37;
@@ -34,7 +35,8 @@
 @media (prefers-color-scheme: dark) {
   .vector-control,
   .vector-control-panel,
-  .vector-control-popup {
+  .vector-control-popup,
+  .vector-control-layer-picker {
     --vc-bg: #1f2937;
     --vc-text: #e5e7eb;
     --vc-text-strong: #f3f4f6;
@@ -718,4 +720,116 @@
   margin: 0;
   accent-color: var(--vc-accent);
   cursor: pointer;
+}
+
+/* Multi-layer container picker.
+ *
+ * Rendered into the map container (not the panel), so it stays visible when
+ * the panel is collapsed or the host keeps the control hidden and drives
+ * addData programmatically. It is modal, so its z-index sits one above the
+ * panel's 1000 (itself above MapLibre's own controls). */
+.vector-control-layer-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.vector-control-layer-picker-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, 100%);
+  max-height: 100%;
+  padding: 16px;
+  color: var(--vc-text);
+  background: var(--vc-bg);
+  border: 1px solid var(--vc-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.vector-control-layer-picker-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vc-text-strong);
+}
+
+.vector-control-layer-picker-subtitle {
+  font-size: 12px;
+  color: var(--vc-text-soft);
+  overflow-wrap: anywhere;
+}
+
+.vector-control-layer-picker-all,
+.vector-control-layer-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vector-control-layer-picker-all {
+  padding: 6px 8px;
+  font-weight: 500;
+  color: var(--vc-text-strong);
+  background: var(--vc-item-bg);
+  border: 1px solid var(--vc-border-soft);
+  border-radius: 4px;
+}
+
+.vector-control-layer-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--vc-border-soft);
+  border-radius: 4px;
+}
+
+.vector-control-layer-picker-item {
+  padding: 5px 6px;
+  border-radius: 4px;
+}
+
+.vector-control-layer-picker-item:hover {
+  background: var(--vc-hover);
+}
+
+.vector-control-layer-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vector-control-layer-picker-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vector-control-layer-picker-footer .vector-control-button {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.vector-control-button-secondary {
+  color: var(--vc-text);
+  background: transparent;
+  border: 1px solid var(--vc-input-border);
+}
+
+.vector-control-button-secondary:hover {
+  background: var(--vc-hover);
 }
