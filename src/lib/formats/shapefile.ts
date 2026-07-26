@@ -13,7 +13,7 @@ function stripExtension(entryName: string): string {
  * the shapefile (a few hundred bytes of resource-fork data GDAL rejects with
  * "not recognized as a supported file format") instead of the real `.shp`.
  */
-function isMacOsMetadataEntry(entryName: string): boolean {
+export function isMacOsMetadataEntry(entryName: string): boolean {
   const baseName = entryName.slice(entryName.lastIndexOf('/') + 1);
   return entryName.startsWith('__MACOSX/') || baseName.startsWith('._');
 }

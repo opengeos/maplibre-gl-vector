@@ -9,7 +9,7 @@ A MapLibre GL JS plugin for visualizing vector data in many formats - GeoJSON, G
 
 ## Features
 
-- **Many vector formats** - GeoJSON, GeoPackage, Shapefile (zipped, or a loose `.shp` selected together with its `.shx`/`.dbf`/`.prj`/... sidecars), GeoParquet, FlatGeobuf, CSV (WKT or lon/lat columns), and every other format the spatial extension's GDAL build reads (KML, GML, MapInfo TAB, DXF, ...)
+- **Many vector formats** - GeoJSON, GeoPackage, Shapefile (zipped, or a loose `.shp` selected together with its `.shx`/`.dbf`/`.prj`/... sidecars), GeoParquet, FlatGeobuf, CSV (WKT or lon/lat columns), KMZ, and every other format the spatial extension's GDAL build reads (KML, GML, MapInfo TAB, DXF, ...)
 - **Small data → GeoJSON** - small datasets are converted to GeoJSON and rendered with a `geojson` source
 - **Large data → dynamic tiles** - large datasets are rendered as MVT tiles generated client-side by DuckDB per `z/x/y`, served through a `duckdb://` protocol handler ([reference approach](https://gist.github.com/Maxxen/37e4a9f8595ea5e6a20c0c8fbbefe955))
 - **Auto mode with override** - render mode is picked automatically from configurable feature-count/byte-size thresholds, with per-layer and UI overrides
@@ -193,6 +193,7 @@ await control.addData(url, { renderMode: "tiles" });
 | Shapefile | `.zip` (zipped), or `.shp` with its sidecars | `ST_Read` (GDAL, `/vsizip/`) | ✅ | ✅ |
 | FlatGeobuf | `.fgb` | `ST_Read` (GDAL) | ✅ | ✅ |
 | CSV | `.csv`, `.tsv` | `read_csv` + WKT or lon/lat columns | ✅ | ✅ |
+| KMZ | `.kmz` | Unzipped, then `ST_Read` (GDAL) on the KML inside | ✅ | ✅ |
 | Anything GDAL reads | `.kml`, `.gml`, `.tab`, `.dxf`, ... | `ST_Read` (GDAL) | ✅ | ✅ |
 
 Extensions without a dedicated reader are passed straight to `ST_Read`, so any vector format the spatial extension's GDAL build supports will load. Remote URLs must be served with CORS enabled.
