@@ -25,6 +25,9 @@ const EXTENSION_FORMATS: Record<string, VectorFormat> = {
   fgb: 'flatgeobuf',
   csv: 'csv',
   tsv: 'csv',
+  // Not a GDAL-readable path on its own: the engine unzips a KMZ and reads
+  // the KML inside it (see formats/kmz.ts).
+  kmz: 'kmz',
 };
 
 /**

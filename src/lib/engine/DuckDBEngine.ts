@@ -40,6 +40,7 @@ import {
   registerLooseShapefile,
   registerZippedShapefile,
 } from "../formats/shapefile";
+import { extractKmzKml } from "../formats/kmz";
 import {
   isUnsupportedSurfaceWkbError,
   wkbRowsToFeatureCollection,
@@ -219,6 +220,12 @@ export class DuckDBEngine implements IEngine {
    * `arrayBuffer()` or a remote fetch) only once.
    */
   private _geoPackageBytes = new Map<string | Blob, Promise<Uint8Array>>();
+  /**
+   * The registered `.kml` extracted from a KMZ, keyed by source, so the
+   * listLayers probe and each per-layer ingest of a multi-layer KMZ share one
+   * unzip (and, for a URL, one fetch) instead of repeating it per layer.
+   */
+  private _kmzKmlPaths = new Map<string | Blob, Promise<string>>();
   /**
    * The `.prj` WKT of a registered zipped shapefile, keyed by its registered
    * `.shp` path. A zip carries no `companionFiles`, so this preserves its
@@ -491,6 +498,12 @@ export class DuckDBEngine implements IEngine {
       await this._loaded.db.dropFile(name).catch(() => undefined);
     }
     this._sharedFiles.clear();
+    for (const path of this._kmzKmlPaths.values()) {
+      // A rejected entry registered nothing, so there is nothing to drop.
+      const name = await path.catch(() => undefined);
+      if (name) await this._loaded.db.dropFile(name).catch(() => undefined);
+    }
+    this._kmzKmlPaths.clear();
     this._geoPackageBytes.clear();
     this._prjWktByPath.clear();
     await this._loaded.conn.close().catch(() => undefined);
@@ -506,6 +519,12 @@ export class DuckDBEngine implements IEngine {
     registrationName: string,
     options: IngestOptions,
   ): Promise<string> {
+    // A KMZ is a zip GDAL can only open through /vsizip, which cannot reach a
+    // registered buffer or a URL here; unzip it and register the KML instead.
+    if (options.format === "kmz") {
+      return this._kmzKmlPathFor(source, registrationName);
+    }
+
     if (typeof source === "string") {
       // Defense in depth: the layer manager checks before loading the
       // engine; the shared cache makes this probe free.
@@ -571,6 +590,43 @@ export class DuckDBEngine implements IEngine {
     await this._loaded.db.registerFileBuffer(name, buffer);
     this._sharedFiles.set(source, name);
     return name;
+  }
+
+  /**
+   * Unzips a KMZ source once and registers the KML inside it, returning the
+   * registered path readers should open. Cached per source so a multi-layer
+   * KMZ unzips (and, for a URL, downloads) once rather than per layer.
+   */
+  private _kmzKmlPathFor(
+    source: string | File | Blob,
+    registrationName: string,
+  ): Promise<string> {
+    const cached = this._kmzKmlPaths.get(source);
+    if (cached) return cached;
+    const path = (async () => {
+      let bytes: Uint8Array;
+      if (typeof source === "string") {
+        await assertRemoteFileSupported(source);
+        const response = await fetch(source);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch KMZ (${response.status} ${response.statusText}).`,
+          );
+        }
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } else {
+        bytes = new Uint8Array(await source.arrayBuffer());
+      }
+      const { bytes: kml } = extractKmzKml(bytes);
+      // A `.kml` name so GDAL picks its KML driver from the extension.
+      const name = `${registrationName}.kml`;
+      await this._loaded.db.registerFileBuffer(name, kml);
+      return name;
+    })();
+    // Drop a failed read from the cache so a later attempt can retry.
+    path.catch(() => this._kmzKmlPaths.delete(source));
+    this._kmzKmlPaths.set(source, path);
+    return path;
   }
 
   /**
