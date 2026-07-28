@@ -27,6 +27,7 @@ import {
   mvtTileQuery,
   mvtTileStreamQuery,
   prepareTilesSql,
+  propertyValuesQuery,
   quoteIdent,
   quoteLiteral,
   readerFor,
@@ -321,7 +322,13 @@ export class DuckDBEngine implements IEngine {
       this._tables.set(tableName, meta);
 
       const summary = await this._summarize(tableName, meta);
-      return { ...summary, tableName, byteSize, streamed };
+      return {
+        ...summary,
+        tableName,
+        fields: [...meta.propertyColumns],
+        byteSize,
+        streamed,
+      };
     });
   }
 
@@ -341,6 +348,16 @@ export class DuckDBEngine implements IEngine {
         return { type: "Feature", geometry, properties };
       });
       return { type: "FeatureCollection", features };
+    });
+  }
+
+  /** @inheritdoc */
+  getPropertyValues(tableName: string, property: string): Promise<unknown[]> {
+    return this._queue.enqueue(async () => {
+      const meta = this._requireTable(tableName);
+      if (!meta.propertyColumns.includes(property)) return [];
+      const result = await this._loaded.conn.query(propertyValuesQuery(tableName, property));
+      return result.toArray().map((row) => sanitizeValue(row.__value));
     });
   }
 
@@ -984,12 +1001,7 @@ export class DuckDBEngine implements IEngine {
       : [geometryColumn.name];
     for (const name of candidates) {
       if (await this._hasValidBase64WkbValues(reader, name)) {
-        const {
-          requiresBase64WkbValidation: _validated,
-          base64WkbCandidates: _candidates,
-          ...validated
-        } = geometryColumn;
-        return { ...validated, name };
+        return { name, encoding: geometryColumn.encoding };
       }
     }
     return undefined;

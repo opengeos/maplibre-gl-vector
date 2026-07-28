@@ -255,6 +255,18 @@ export class VectorControl implements IControl {
   }
 
   /**
+   * Reads the non-null values of one layer attribute without materializing
+   * engine-backed geometry.
+   *
+   * @param id - The layer id.
+   * @param property - An attribute field name.
+   * @returns The values, or null when the layer or field is unavailable.
+   */
+  getLayerPropertyValues(id: string, property: string): Promise<unknown[] | null> {
+    return this._layerManager?.getLayerPropertyValues(id, property) ?? Promise.resolve(null);
+  }
+
+  /**
    * Shows or hides a layer.
    *
    * @param id - The layer id

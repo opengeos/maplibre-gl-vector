@@ -247,6 +247,29 @@ export class LayerManager {
   }
 
   /**
+   * Reads the non-null values of one layer attribute without materializing
+   * engine-backed geometry. This keeps classification and other
+   * attribute-driven host controls usable for large tiled layers.
+   *
+   * @param id - The layer id.
+   * @param property - An attribute field name.
+   * @returns The values, or null when the layer or field is unavailable.
+   */
+  async getLayerPropertyValues(id: string, property: string): Promise<unknown[] | null> {
+    const record = this._records.get(id);
+    if (!record || !record.info.fields?.includes(property)) return null;
+    if (record.tableName) {
+      const engine = await this._getEngine();
+      return engine.getPropertyValues(record.tableName, property);
+    }
+    const collection = await this.getLayerGeoJSON(id);
+    if (!collection) return null;
+    return collection.features
+      .map((feature) => feature.properties?.[property])
+      .filter((value) => value !== null && value !== undefined);
+  }
+
+  /**
    * Loads a data source and adds it to the map.
    *
    * @param source - URL string, File/Blob, or GeoJSON object
@@ -1091,6 +1114,7 @@ export class LayerManager {
       companionFiles: record.companionFiles,
     });
     record.tableName = summary.tableName;
+    record.info.fields = summary.fields;
     // The engine falls back to a table for formats streaming
     // does not apply to.
     record.info.ingestMode = summary.streamed ? 'stream' : 'table';

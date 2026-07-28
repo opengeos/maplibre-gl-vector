@@ -78,12 +78,14 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
     ingest: vi.fn(async (_source, tableName) => ({
       tableName,
       featureCount: 100,
+      fields: ['name', 'population'],
       bbox: [0, 0, 10, 10] as [number, number, number, number],
       geometryType: 'polygon' as const,
       byteSize: 1234,
     })),
     listLayers: vi.fn(async () => []),
     exportGeoJSON: vi.fn(async () => POLYGON_FC),
+    getPropertyValues: vi.fn(async () => ['Central', 'North', 'South']),
     reprojectGeoJSON: vi.fn(async (collection) => collection),
     prepareTiles: vi.fn(async () => undefined),
     getTile: vi.fn(async () => new Uint8Array(0)),
@@ -359,6 +361,39 @@ describe('getLayerGeoJSON', () => {
     });
     expect(await manager.getLayerGeoJSON('cities')).toEqual(POLYGON_FC);
     expect(engine.exportGeoJSON).toHaveBeenCalledWith('t_cities');
+  });
+});
+
+describe('getLayerPropertyValues', () => {
+  it('returns null for an unknown layer or field', async () => {
+    const { manager } = createManager();
+    expect(await manager.getLayerPropertyValues('nope', 'name')).toBeNull();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(await manager.getLayerPropertyValues('poly', 'missing')).toBeNull();
+  });
+
+  it('reads values from an in-memory GeoJSON layer', async () => {
+    const { manager, engine } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(await manager.getLayerPropertyValues('poly', 'name')).toEqual(['box']);
+    expect(engine.getPropertyValues).not.toHaveBeenCalled();
+  });
+
+  it('queries only the selected field for an engine-backed tiled layer', async () => {
+    const { manager, engine } = createManager();
+    const info = await manager.addData(new File(['gpkg'], 'cities.gpkg'), {
+      id: 'cities',
+      renderMode: 'tiles',
+      fitBounds: false,
+    });
+    expect(info.fields).toEqual(['name', 'population']);
+    expect(await manager.getLayerPropertyValues('cities', 'name')).toEqual([
+      'Central',
+      'North',
+      'South',
+    ]);
+    expect(engine.getPropertyValues).toHaveBeenCalledWith('t_cities', 'name');
+    expect(engine.exportGeoJSON).not.toHaveBeenCalled();
   });
 });
 
