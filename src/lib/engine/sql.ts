@@ -466,6 +466,18 @@ export function exportGeoJSONQuery(tableName: string, propertyColumns: string[])
 }
 
 /**
+ * SQL reading the non-null values of one attribute column.
+ *
+ * @param tableName - Source table
+ * @param property - Attribute column
+ * @returns The query text
+ */
+export function propertyValuesQuery(tableName: string, property: string): string {
+  const column = quoteIdent(property);
+  return `SELECT ${column} AS __value FROM ${quoteIdent(tableName)} WHERE ${column} IS NOT NULL`;
+}
+
+/**
  * SQL statements preparing a table for tile generation: a Web Mercator
  * geometry column and an R-Tree index.
  *

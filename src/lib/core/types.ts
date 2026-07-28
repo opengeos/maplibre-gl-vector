@@ -658,9 +658,9 @@ export interface VectorLayerInfo {
   /** Number of features, when known */
   featureCount?: number;
   /**
-   * Attribute field names found in the layer's features, when known. Populated
-   * for GeoJSON-rendered layers (the union of property keys across features);
-   * a host uses it to offer attribute-driven choices such as a label field.
+   * Attribute field names found in the layer's features or engine table, when
+   * known. A host uses them to offer attribute-driven choices such as a label
+   * field.
    */
   fields?: string[];
   /** Source size in bytes, when known */

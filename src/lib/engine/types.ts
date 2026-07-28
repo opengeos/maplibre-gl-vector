@@ -31,6 +31,8 @@ export interface IngestSummary {
   tableName: string;
   /** Number of features ingested */
   featureCount: number;
+  /** Non-geometry attribute fields exposed by the ingested table */
+  fields?: string[];
   /** Extent in EPSG:4326 */
   bbox?: Bbox;
   /** Broad geometry category */
@@ -80,6 +82,15 @@ export interface IEngine {
    * @returns The FeatureCollection
    */
   exportGeoJSON(tableName: string): Promise<FeatureCollection>;
+
+  /**
+   * Reads the non-null values of one attribute column.
+   *
+   * @param tableName - The table to query
+   * @param property - An attribute field returned by ingest
+   * @returns The JSON-safe values, or an empty array for an unknown field
+   */
+  getPropertyValues(tableName: string, property: string): Promise<unknown[]>;
 
   /**
    * Reprojects an in-memory GeoJSON FeatureCollection to WGS84 (EPSG:4326)

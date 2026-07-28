@@ -17,6 +17,7 @@ import {
   mvtProbeQuery,
   mvtTileQuery,
   prepareTilesSql,
+  propertyValuesQuery,
   quoteIdent,
   quoteLiteral,
   readerFor,
@@ -239,6 +240,14 @@ describe('exportGeoJSONQuery', () => {
   it('works without properties', () => {
     expect(exportGeoJSONQuery('t1', [])).toBe(
       'SELECT ST_AsGeoJSON(geom) AS __geojson FROM "t1" WHERE geom IS NOT NULL',
+    );
+  });
+});
+
+describe('propertyValuesQuery', () => {
+  it('selects non-null values and safely quotes names', () => {
+    expect(propertyValuesQuery('t cities', 'Cluster Name')).toBe(
+      'SELECT "Cluster Name" AS __value FROM "t cities" WHERE "Cluster Name" IS NOT NULL',
     );
   });
 });
