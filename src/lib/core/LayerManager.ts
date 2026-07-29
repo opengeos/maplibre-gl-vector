@@ -45,6 +45,7 @@ import {
   summarizeFeatureCollection,
   toFeatureCollection,
 } from '../utils/geometry';
+import { fitMapToBbox } from '../utils/fit';
 import { generateId } from '../utils/helpers';
 import { getMaplibre } from '../utils/maplibre';
 import { assertRemoteFileSupported } from '../utils/remote';
@@ -1401,12 +1402,6 @@ export class LayerManager {
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {
-    this._map.fitBounds(
-      [
-        [bbox[0], bbox[1]],
-        [bbox[2], bbox[3]],
-      ],
-      { padding: 40, duration: 600, maxZoom: 16 },
-    );
+    fitMapToBbox(this._map, bbox, { padding: 40, duration: 600, maxZoom: 16 });
   }
 }
