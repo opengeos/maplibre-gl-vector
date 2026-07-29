@@ -291,6 +291,29 @@ describe('LayerManager GeoJSON path', () => {
     expect(map.fitBounds).not.toHaveBeenCalled();
   });
 
+  it('caps the fit at the flat-map zoom so a near-global extent stays visible', async () => {
+    // The globe camera zooms *in* on extents this wide (see utils/fit.ts), so
+    // the fit has to arrive with a ceiling of its own or the layer lands
+    // behind the horizon.
+    const engine = createMockEngine({
+      ingest: vi.fn(async (_source, tableName) => ({
+        tableName,
+        featureCount: 429,
+        fields: ['name'],
+        bbox: [-124.16, 16.53, 135.51, 51.58] as [number, number, number, number],
+        geometryType: 'point' as const,
+      })),
+    });
+    const { manager, map } = createManager({}, engine, {
+      getCanvas: vi.fn(() => ({ style: {}, clientWidth: 576, clientHeight: 648 })),
+    });
+
+    await manager.addData(new File(['x'], 'attacks.kmz'), { id: 'kmz' });
+
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(map.fitBounds.mock.calls[0][1].maxZoom).toBeCloseTo(0.4255, 3);
+  });
+
   it('emits error and rethrows on invalid sources', async () => {
     const { manager, emit } = createManager();
     vi.stubGlobal(
