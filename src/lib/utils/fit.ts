@@ -4,24 +4,35 @@ import type { Bbox } from './geometry';
 /**
  * Globe-safe camera fitting.
  *
- * `map.fitBounds` is unreliable under the globe projection once an extent
- * grows past roughly a third of the planet: instead of continuing to pull
- * back, MapLibre's globe camera solver starts zooming *in* again. Measured on
- * a 576x648 viewport with 40px padding, a bbox 150 degrees wide settles at
- * zoom 1.97, one 259 degrees wide at 3.10, and one 359 degrees wide at 5.00 —
- * a near-global dataset ends up framed on an empty patch of ocean with every
- * feature behind the horizon. The flat-map answers for the same boxes are
- * 1.22, 0.43 and 0.00.
+ * A globe can only ever show half the planet's longitudes at once, so an extent
+ * wider than a hemisphere has no camera that contains it. MapLibre's
+ * `fitBounds` does not treat that as the special case it is: past roughly a
+ * hemisphere its globe camera solver stops pulling back and starts zooming *in*
+ * again. Measured against a live map on a 576x648 viewport with 40px padding,
+ * sampling the box outline to see how much of it lands inside the padded
+ * viewport:
  *
- * A dataset with a few far-flung outliers (a mostly-US point layer with three
- * records in Europe and Asia, say) hits this immediately, and the layer reads
- * as "added but invisible".
+ * | bbox width | globe zoom | outline in frame | flat-map zoom |
+ * | ---------- | ---------- | ---------------- | ------------- |
+ * | 90 deg     | 2.27       | 42/42            | 1.95          |
+ * | 150 deg    | 1.97       | 42/42            | 1.22          |
+ * | 170 deg    | 2.00       | 42/42            | 1.07          |
+ * | 175 deg    | 2.01       | 34/42            | 1.03          |
+ * | 259 deg    | 3.10       | 10/42            | 0.43          |
+ * | 360 deg    | 2.36       | 46/84            | 0.00          |
  *
- * So the flat-map fit is computed here and handed to `fitBounds` as a zoom
- * ceiling. It only ever loosens the camera: the globe shows less of the world
- * than Web Mercator does at the same zoom, and MapLibre's own solver already
- * pulls back further than this for bearing and pitch. A sane fit is left
- * alone; a broken one is capped at a whole-globe view.
+ * So MapLibre frames narrow and continent-scale extents correctly and only
+ * breaks down past a hemisphere, where it leaves the data behind the horizon
+ * and the layer reads as "added, but nothing on the map". It takes very little
+ * to get there: a mostly-US point layer with three records in Europe and Asia
+ * already spans 259 degrees.
+ *
+ * {@link fitMapToBbox} therefore caps the zoom at the flat Web Mercator fit for
+ * exactly those extents, so the camera settles on a whole-globe view instead.
+ * Fits MapLibre already handles are passed through untouched. The cap is a
+ * ceiling and never a floor, so it cannot tighten a fit; and under the mercator
+ * projection it equals what `fitBounds` computes anyway, making it a no-op
+ * there.
  */
 
 /**
@@ -33,6 +44,18 @@ const MAX_MERCATOR_LATITUDE = 85.051129;
 /** The tile size MapLibre's zoom scale is defined against. */
 const TILE_SIZE = 512;
 
+/**
+ * The widest longitude span a globe can show at once: half the planet. Past
+ * this, no camera contains the extent and MapLibre's globe fit degrades (see
+ * the measurements above), so the flat-map ceiling takes over. The measured
+ * boundary sits a little under this (containment ends around 175 degrees on a
+ * 576x648 viewport, since the padding eats into the visible hemisphere), but
+ * the geometric limit is used rather than a viewport-tuned constant: extents in
+ * that narrow band keep MapLibre's own fit, which puts only their extreme
+ * east/west edges just outside the padding.
+ */
+const GLOBE_VISIBLE_LONGITUDE_SPAN = 180;
+
 /** Normalized (0..1) Web Mercator northing for a latitude in degrees. */
 function mercatorY(latitude: number): number {
   const clamped = Math.min(MAX_MERCATOR_LATITUDE, Math.max(-MAX_MERCATOR_LATITUDE, latitude));
@@ -40,9 +63,26 @@ function mercatorY(latitude: number): number {
 }
 
 /**
+ * The longitude span of a bbox in degrees, taking the short way round so an
+ * extent crossing the antimeridian (`west` greater than `east`, e.g.
+ * `[170, …, -170, …]`) reads as the ~20 degrees it covers rather than the ~340
+ * degree complement. A full-world box (`[-180, …, 180, …]`) still reads as 360.
+ *
+ * @param west - The bbox's western edge in degrees
+ * @param east - The bbox's eastern edge in degrees
+ * @returns The span in degrees, in [0, 360]
+ */
+export function longitudeSpan(west: number, east: number): number {
+  const span = east - west;
+  if (span >= 360) return 360;
+  return ((span % 360) + 360) % 360;
+}
+
+/**
  * Computes the zoom at which a bbox fits a viewport under flat Web Mercator.
  *
- * @param bbox - The extent to fit, as [west, south, east, north] in EPSG:4326
+ * @param bbox - The extent to fit, as [west, south, east, north] in EPSG:4326.
+ *   A `west` greater than `east` is read as crossing the antimeridian.
  * @param viewport - The map viewport size in CSS pixels
  * @param padding - Padding to keep free on every side, in CSS pixels
  * @returns The fitting zoom, or undefined when the inputs cannot produce one
@@ -61,7 +101,7 @@ export function mercatorFitZoom(
 
   // Either span may be zero (a point layer, or a horizontal line); such an
   // axis simply places no constraint on the zoom.
-  const worldFractionX = Math.abs(east - west) / 360;
+  const worldFractionX = longitudeSpan(west, east) / 360;
   const worldFractionY = Math.abs(mercatorY(south) - mercatorY(north));
 
   const scales: number[] = [];
@@ -97,20 +137,37 @@ function viewportOf(map: MapLibreMap): { width: number; height: number } | undef
 }
 
 /**
- * Fits the map to a bbox, capping the zoom at the flat-map fit so a wide
- * extent cannot be framed on empty space by the globe camera.
+ * The zoom ceiling to send with a fit: the caller's own, tightened to the
+ * flat-map fit for an extent too wide for any globe camera to contain.
+ */
+function ceilingFor(
+  map: MapLibreMap,
+  bbox: Bbox,
+  options: FitBboxOptions,
+): number | undefined {
+  const [west, , east] = bbox;
+  const fitsOnAGlobe =
+    !Number.isFinite(west) ||
+    !Number.isFinite(east) ||
+    longitudeSpan(west, east) <= GLOBE_VISIBLE_LONGITUDE_SPAN;
+  if (fitsOnAGlobe) return options.maxZoom;
+
+  const viewport = viewportOf(map);
+  const flatZoom = viewport ? mercatorFitZoom(bbox, viewport, options.padding) : undefined;
+  if (flatZoom === undefined) return options.maxZoom;
+  return Math.min(flatZoom, options.maxZoom ?? Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Fits the map to a bbox, capping the zoom at the flat-map fit when the extent
+ * is wider than a globe can show, so it cannot be framed on empty space.
  *
  * @param map - The map to move
  * @param bbox - The extent to fit, as [west, south, east, north] in EPSG:4326
  * @param options - Padding, animation length, and an optional zoom ceiling
  */
 export function fitMapToBbox(map: MapLibreMap, bbox: Bbox, options: FitBboxOptions): void {
-  const viewport = viewportOf(map);
-  const flatZoom = viewport ? mercatorFitZoom(bbox, viewport, options.padding) : undefined;
-  const maxZoom =
-    flatZoom === undefined
-      ? options.maxZoom
-      : Math.min(flatZoom, options.maxZoom ?? Number.POSITIVE_INFINITY);
+  const maxZoom = ceilingFor(map, bbox, options);
 
   map.fitBounds(
     [

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { fitMapToBbox, mercatorFitZoom } from '../src/lib/utils/fit';
+import { fitMapToBbox, longitudeSpan, mercatorFitZoom } from '../src/lib/utils/fit';
 import type { Bbox } from '../src/lib/utils/geometry';
 
 /** The viewport the globe measurements in `fit.ts` were taken on. */
@@ -65,10 +65,33 @@ describe('mercatorFitZoom', () => {
   it('returns undefined for a non-finite extent', () => {
     expect(mercatorFitZoom([Number.NaN, 0, 10, 10], VIEWPORT, 40)).toBeUndefined();
   });
+
+  it('takes the short way round the antimeridian', () => {
+    // [170 … -170] spans 20 degrees, so it must fit as tightly as the
+    // equivalent box that does not wrap.
+    expect(mercatorFitZoom([170, -10, -170, 10], VIEWPORT, 40)).toBeCloseTo(
+      mercatorFitZoom([-10, -10, 10, 10], VIEWPORT, 40) as number,
+      6,
+    );
+  });
+});
+
+describe('longitudeSpan', () => {
+  it('measures a plain west-to-east extent', () => {
+    expect(longitudeSpan(-10, 10)).toBe(20);
+  });
+
+  it('takes the short way round when the extent wraps', () => {
+    expect(longitudeSpan(170, -170)).toBeCloseTo(20, 6);
+  });
+
+  it('keeps a full-world extent at 360', () => {
+    expect(longitudeSpan(-180, 180)).toBe(360);
+  });
 });
 
 describe('fitMapToBbox', () => {
-  it('caps maxZoom at the flat-map fit so a wide extent cannot zoom in', () => {
+  it('caps maxZoom at the flat-map fit for an extent wider than a hemisphere', () => {
     const map = createMockMap();
     fitMapToBbox(map as unknown as MapLibreMap, WIDE_BBOX, {
       padding: 40,
@@ -87,14 +110,29 @@ describe('fitMapToBbox', () => {
     expect(options.maxZoom).toBeCloseTo(0.4255, 3);
   });
 
-  it('keeps the caller ceiling when it is the tighter of the two', () => {
+  it('leaves an extent the globe can frame to MapLibre', () => {
     const map = createMockMap();
-    // A tiny extent fits well past zoom 16, so the caller's ceiling wins.
-    fitMapToBbox(map as unknown as MapLibreMap, [-0.001, -0.001, 0.001, 0.001], {
+    // 90 degrees wide: measured to sit entirely inside the padded viewport at
+    // the zoom MapLibre's globe camera picks, so no ceiling is imposed.
+    fitMapToBbox(map as unknown as MapLibreMap, [-140, 20, -50, 60], { padding: 40 });
+    expect(map.fitBounds.mock.calls[0][1]).not.toHaveProperty('maxZoom');
+  });
+
+  it('keeps the caller ceiling for an extent the globe can frame', () => {
+    const map = createMockMap();
+    fitMapToBbox(map as unknown as MapLibreMap, [-140, 20, -50, 60], {
       padding: 40,
       maxZoom: 16,
     });
     expect(map.fitBounds.mock.calls[0][1].maxZoom).toBe(16);
+  });
+
+  it('reads an antimeridian-crossing extent as the span it covers', () => {
+    const map = createMockMap();
+    // [170 … -170] covers 20 degrees, not the 340 degree complement, so it is
+    // nowhere near wide enough to need the ceiling.
+    fitMapToBbox(map as unknown as MapLibreMap, [170, -10, -170, 10], { padding: 40 });
+    expect(map.fitBounds.mock.calls[0][1]).not.toHaveProperty('maxZoom');
   });
 
   it('falls back to the caller ceiling when the viewport cannot be measured', () => {
