@@ -72,6 +72,8 @@ export interface LayerManagerDeps {
 interface LayerRecord {
   info: VectorLayerInfo;
   source: VectorDataSource;
+  /** Original URL when a host urlLoader materialized the source as a Blob. */
+  remoteUrl?: string;
   sourceLayer?: string;
   fileName?: string;
   /** Sidecar files for a loose shapefile, registered alongside its `.shp`. */
@@ -175,6 +177,11 @@ export function isLooseShapefileMissingSiblings(
  * provider, which is resolved lazily on first non-GeoJSON load.
  */
 export class LayerManager {
+  /**
+   * Carries a materialized URL through multi-layer container expansion without
+   * exposing an internal option on the public addData API.
+   */
+  private readonly _materializedUrls = new WeakMap<object, string>();
   private _map: MapLibreMap;
   private _options: VectorControlOptions;
   private _emit: LayerManagerEmitter;
@@ -295,6 +302,23 @@ export class LayerManager {
     options: VectorLayerOptions = {},
   ): Promise<VectorLayerInfo> {
     const detected = detectSource(source, options.format);
+    let remoteUrl =
+      typeof source === 'object' && source !== null
+        ? this._materializedUrls.get(source as object)
+        : undefined;
+    if (
+      typeof source === 'string' &&
+      /^https?:\/\//i.test(source) &&
+      this._options.urlLoader
+    ) {
+      remoteUrl = source;
+      const loaded = await this._options.urlLoader(source);
+      source =
+        typeof File !== 'undefined' && loaded instanceof File
+          ? loaded
+          : new File([loaded], detected.name, { type: loaded.type });
+      this._materializedUrls.set(source, remoteUrl);
+    }
     const id = options.id ?? generateId('vector');
     if (this._records.has(id)) {
       throw new Error(`Layer "${id}" already exists`);
@@ -362,7 +386,9 @@ export class LayerManager {
       info: {
         id,
         name,
-        source: describeSource(source, options.sourcePath),
+        source: remoteUrl
+          ? { kind: 'url', url: remoteUrl }
+          : describeSource(source, options.sourcePath),
         format: detected.format,
         renderMode: 'geojson',
         geometryType: 'unknown',
@@ -377,6 +403,7 @@ export class LayerManager {
         layerIds: [],
       },
       source,
+      remoteUrl,
       sourceLayer: options.sourceLayer,
       fileName: typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
       companionFiles: options.companionFiles,
@@ -777,11 +804,19 @@ export class LayerManager {
     const record = this._records.get(id);
     if (!record) return undefined;
     // Only URL sources can change between loads; files/objects are static.
-    if (typeof record.source !== 'string') return { ...record.info };
+    if (typeof record.source !== 'string' && !record.remoteUrl) return { ...record.info };
 
     this._emit('loading', { message: `Refreshing ${record.info.name}...` });
 
     try {
+      if (record.remoteUrl && this._options.urlLoader) {
+        const loaded = await this._options.urlLoader(record.remoteUrl);
+        record.source =
+          typeof File !== 'undefined' && loaded instanceof File
+            ? loaded
+            : new File([loaded], this._defaultFileName(record), { type: loaded.type });
+        this._materializedUrls.set(record.source as object, record.remoteUrl);
+      }
       // Tear down the current presentation (mirrors setRenderMode).
       this._detachPicker(record);
       removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);

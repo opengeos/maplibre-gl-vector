@@ -161,6 +161,27 @@ describe('describeSource', () => {
 });
 
 describe('LayerManager GeoJSON path', () => {
+  it('loads a remote source through the host urlLoader and preserves its URL descriptor', async () => {
+    const urlLoader = vi.fn().mockResolvedValue(
+      new Blob([JSON.stringify(POLYGON_FC)], { type: 'application/geo+json' }),
+    );
+    const { manager, map } = createManager({ urlLoader });
+
+    const info = await manager.addData('https://files.example.com/data.geojson', {
+      id: 'native-url',
+    });
+
+    expect(urlLoader).toHaveBeenCalledWith('https://files.example.com/data.geojson');
+    expect(info.source).toEqual({
+      kind: 'url',
+      url: 'https://files.example.com/data.geojson',
+    });
+    expect(map.addSource).toHaveBeenCalledWith(
+      'native-url-source',
+      expect.objectContaining({ type: 'geojson' }),
+    );
+  });
+
   it('adds a GeoJSON object without touching the engine', async () => {
     const engine = createMockEngine();
     const { manager, map, emit } = createManager({}, engine);
