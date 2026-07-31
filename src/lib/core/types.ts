@@ -187,7 +187,7 @@ export interface VectorControlOptions {
    * load servers that do not permit browser CORS while the public layer source
    * remains the original URL for persistence and refresh.
    */
-  urlLoader?: (url: string) => Promise<Blob>;
+  urlLoader?: (url: string) => Promise<Blob | null>;
 
   /**
    * Whether the control panel should start collapsed (showing only the toggle button)
