@@ -180,6 +180,16 @@ export interface VectorSampleDataset {
  */
 export interface VectorControlOptions {
   /**
+   * Host-supplied loader for remote HTTP(S) datasets.
+   *
+   * When set, URL sources are downloaded through this callback and handed to
+   * the control as a Blob/File. Desktop hosts can use a native HTTP client to
+   * load servers that do not permit browser CORS while the public layer source
+   * remains the original URL for persistence and refresh.
+   */
+  urlLoader?: (url: string) => Promise<Blob>;
+
+  /**
    * Whether the control panel should start collapsed (showing only the toggle button)
    * @default true
    */
