@@ -1,5 +1,5 @@
-import type { Map, PropertyValueSpecification } from "maplibre-gl";
-import type { GeoJSON } from "geojson";
+import type { Map, PropertyValueSpecification } from 'maplibre-gl';
+import type { GeoJSON } from 'geojson';
 
 /**
  * Rendering mode for a vector layer.
@@ -8,7 +8,7 @@ import type { GeoJSON } from "geojson";
  * - `'geojson'` - Convert to GeoJSON and render with a geojson source
  * - `'tiles'` - Generate dynamic MVT tiles with DuckDB per z/x/y
  */
-export type RenderMode = "auto" | "geojson" | "tiles";
+export type RenderMode = 'auto' | 'geojson' | 'tiles';
 
 /**
  * How a dataset is ingested into DuckDB.
@@ -20,7 +20,7 @@ export type RenderMode = "auto" | "geojson" | "tiles";
  *   using the GeoParquet bbox covering column for row-group pruning
  *   when present. Nothing is copied into the database.
  */
-export type IngestMode = "table" | "stream";
+export type IngestMode = 'table' | 'stream';
 
 /**
  * Vector data formats recognized by the control.
@@ -33,24 +33,19 @@ export type IngestMode = "table" | "stream";
  * ST_Read.
  */
 export type VectorFormat =
-  | "geojson"
-  | "geopackage"
-  | "shapefile"
-  | "geoparquet"
-  | "flatgeobuf"
-  | "csv"
-  | "unknown"
+  | 'geojson'
+  | 'geopackage'
+  | 'shapefile'
+  | 'geoparquet'
+  | 'flatgeobuf'
+  | 'csv'
+  | 'unknown'
   | (string & {});
 
 /**
  * Broad geometry category of a layer, used to pick map layer types.
  */
-export type GeometryCategory =
-  | "point"
-  | "line"
-  | "polygon"
-  | "mixed"
-  | "unknown";
+export type GeometryCategory = 'point' | 'line' | 'polygon' | 'mixed' | 'unknown';
 
 /**
  * How point features are rendered (geojson render mode only).
@@ -59,7 +54,7 @@ export type GeometryCategory =
  * - `'heatmap'` - A density heatmap surface
  * - `'cluster'` - Nearby points grouped into counted bubbles
  */
-export type PointMode = "circle" | "heatmap" | "cluster";
+export type PointMode = 'circle' | 'heatmap' | 'cluster';
 
 /**
  * Input data accepted by `VectorControl.addData`: a URL, a local
@@ -192,7 +187,7 @@ export interface VectorControlOptions {
    * load servers that do not permit browser CORS while the public layer source
    * remains the original URL for persistence and refresh.
    */
-  urlLoader?: (url: string) => Promise<Blob | null>;
+  urlLoader?: (url: string) => Promise<Blob>;
 
   /**
    * Whether the control panel should start collapsed (showing only the toggle button)
@@ -204,7 +199,7 @@ export interface VectorControlOptions {
    * Position of the control on the map
    * @default 'top-right'
    */
-  position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
   /**
    * Title displayed in the control header
@@ -476,7 +471,7 @@ export interface VectorLayerStyle {
    * centroid for polygons); `'line'` places labels along line geometry.
    * @default 'point'
    */
-  labelPlacement?: "point" | "line";
+  labelPlacement?: 'point' | 'line';
   /**
    * Let labels overlap instead of hiding colliding ones (when `labelField`
    * is set).
@@ -632,13 +627,13 @@ export interface VectorLayerOptions {
 export type VectorSourceDescriptor =
   | {
       /** The data was loaded from a URL */
-      kind: "url";
+      kind: 'url';
       /** The source URL */
       url: string;
     }
   | {
       /** The data came from a local File/Blob */
-      kind: "file";
+      kind: 'file';
       /** The local file name (when known) */
       fileName?: string;
       /**
@@ -651,7 +646,7 @@ export type VectorSourceDescriptor =
     }
   | {
       /** The data was passed as a GeoJSON object */
-      kind: "geojson";
+      kind: 'geojson';
     };
 
 /**
@@ -667,7 +662,7 @@ export interface VectorLayerInfo {
   /** Detected source format */
   format: VectorFormat;
   /** Resolved render mode (never 'auto') */
-  renderMode: "geojson" | "tiles";
+  renderMode: 'geojson' | 'tiles';
   /** Broad geometry category */
   geometryType: GeometryCategory;
   /** Number of features, when known */
@@ -761,14 +756,14 @@ export interface VectorControlReactProps extends VectorControlOptions {
  * Event types emitted by the vector control
  */
 export type VectorControlEvent =
-  | "collapse"
-  | "expand"
-  | "statechange"
-  | "layeradded"
-  | "layerremoved"
-  | "layerupdated"
-  | "loading"
-  | "error";
+  | 'collapse'
+  | 'expand'
+  | 'statechange'
+  | 'layeradded'
+  | 'layerremoved'
+  | 'layerupdated'
+  | 'loading'
+  | 'error';
 
 /**
  * Payload passed to event handlers.
