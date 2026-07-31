@@ -16,6 +16,7 @@ import type { EngineProvider } from '../engine/types';
 import type { VectorSourceDescriptor } from './types';
 import { detectSource } from '../formats/detect';
 import { sniffRemoteGeoJSON } from '../formats/geojsonSniff';
+import { enhanceKmzGeoJSON, prepareKmzIcons } from '../formats/kmzMetadata';
 import { decideRenderMode } from '../render/renderMode';
 import {
   DEFAULT_LABEL_SIZE,
@@ -231,10 +232,22 @@ export class LayerManager {
   async getLayerGeoJSON(id: string): Promise<FeatureCollection | null> {
     const record = this._records.get(id);
     if (!record) return null;
-    if (record.geojson) return record.geojson;
+    if (record.geojson) {
+      return enhanceKmzGeoJSON(
+        record.source,
+        record.geojson,
+        record.fileName ??
+          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+      );
+    }
     if (record.tableName) {
       const engine = await this._getEngine();
-      return engine.exportGeoJSON(record.tableName);
+      return enhanceKmzGeoJSON(
+        record.source,
+        await engine.exportGeoJSON(record.tableName),
+        record.fileName ??
+          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+      );
     }
     // A line/polygon geojson layer keeps no cached copy (to avoid pinning the
     // heap), but its data lives in the map source it was added with.
@@ -467,7 +480,7 @@ export class LayerManager {
     // re-adds the label layer from the current style, so no separate label
     // handling is needed on that branch.
     if (this._isStructuralPointChange(record, prev, next)) {
-      this._rebuildPointLayers(record);
+      void this._rebuildPointLayers(record);
     } else if (this._isExtrusionToggle(record, prev, next)) {
       // Flipping extrusion on or off swaps a polygon layer between flat fill and
       // a fill-extrusion layer, which setPaintProperty cannot express; rebuild
@@ -631,7 +644,7 @@ export class LayerManager {
    * already held by the source, so a pointMode/cluster change takes effect
    * without re-fetching. Preserves the picker.
    */
-  private _rebuildPointLayers(record: LayerRecord): void {
+  private async _rebuildPointLayers(record: LayerRecord): Promise<void> {
     // Use the cached FeatureCollection: reading it back from the map via
     // source.serialize() is unreliable for a clustered source.
     const collection = record.geojson;
@@ -646,6 +659,7 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(record.info.geometryType, record.info.style),
     );
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: record.info.geometryType,
@@ -653,6 +667,7 @@ export class LayerManager {
       visible: record.info.visible,
       opacity: record.info.opacity,
       beforeId: record.info.beforeId,
+      kmlIconImage,
     });
     this._attachPicker(record);
   }
@@ -1055,6 +1070,7 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(summary.geometryType, record.info.style),
     );
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: summary.geometryType,
@@ -1062,6 +1078,7 @@ export class LayerManager {
       visible: record.info.visible,
       opacity: record.info.opacity,
       beforeId: record.info.beforeId,
+      kmlIconImage,
     });
     this._attachPicker(record);
   }
@@ -1184,6 +1201,12 @@ export class LayerManager {
       const engine = await this._getEngine();
       this._emit('loading', { message: `Converting ${record.info.name} to GeoJSON...` });
       collection = await engine.exportGeoJSON(record.tableName);
+      collection = await enhanceKmzGeoJSON(
+        record.source,
+        collection,
+        record.fileName ??
+          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+      );
     } else {
       collection = (await this._resolveGeoJSON(record.source)).collection;
     }
@@ -1203,6 +1226,7 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(record.info.geometryType, record.info.style),
     );
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: record.info.geometryType,
@@ -1210,6 +1234,7 @@ export class LayerManager {
       visible: record.info.visible,
       opacity: record.info.opacity,
       beforeId: record.info.beforeId,
+      kmlIconImage,
     });
     this._attachPicker(record);
   }
@@ -1316,10 +1341,7 @@ export class LayerManager {
     }
   }
 
-  /**
-   * Opens (or replaces) the attribute popup for a clicked feature.
-   * Content is built with textContent, so attribute values are inert.
-   */
+  /** Opens (or replaces) the attribute popup for a clicked feature. */
   private async _showPopup(
     info: Pick<VectorLayerInfo, 'id' | 'name'>,
     lngLat: { lng: number; lat: number },
@@ -1333,7 +1355,7 @@ export class LayerManager {
     title.textContent = info.name;
     container.appendChild(title);
 
-    const entries = Object.entries(properties);
+    const entries = Object.entries(properties).filter(([key]) => !key.startsWith('__geolibre_'));
     if (entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'vector-control-popup-empty';
@@ -1348,14 +1370,64 @@ export class LayerManager {
         keyCell.className = 'vector-control-popup-key';
         keyCell.textContent = key;
         const valueCell = row.insertCell();
-        valueCell.textContent = value === null || value === undefined ? '' : String(value);
+        if (
+          key.toLowerCase() === 'description' &&
+          typeof value === 'string' &&
+          /<[^>]+>/.test(value)
+        ) {
+          const parsed = new DOMParser().parseFromString(value, 'text/html');
+          const allowed = new Set([
+            'a',
+            'b',
+            'br',
+            'div',
+            'em',
+            'i',
+            'p',
+            'span',
+            'strong',
+            'table',
+            'tbody',
+            'td',
+            'th',
+            'thead',
+            'tr',
+          ]);
+          const copy = (node: Node, parent: Node): void => {
+            if (node.nodeType === Node.TEXT_NODE) {
+              parent.appendChild(document.createTextNode(node.textContent ?? ''));
+              return;
+            }
+            if (!(node instanceof Element)) return;
+            const tag = node.localName.toLowerCase();
+            if (tag === 'script' || tag === 'style' || tag === 'head' || tag === 'meta') return;
+            if (!allowed.has(tag)) {
+              for (const childNode of node.childNodes) copy(childNode, parent);
+              return;
+            }
+            const element = document.createElement(tag);
+            if (tag === 'a') {
+              const href = node.getAttribute('href')?.trim();
+              if (href && /^(https?:|mailto:)/i.test(href)) {
+                element.setAttribute('href', href);
+                element.setAttribute('target', '_blank');
+                element.setAttribute('rel', 'noopener noreferrer');
+              }
+            }
+            for (const childNode of node.childNodes) copy(childNode, element);
+            parent.appendChild(element);
+          };
+          for (const childNode of parsed.body.childNodes) copy(childNode, valueCell);
+        } else {
+          valueCell.textContent = value === null || value === undefined ? '' : String(value);
+        }
       }
       container.appendChild(table);
     }
 
     const maplibre = await getMaplibre();
     this._popup?.remove();
-    const popup = new maplibre.Popup({ closeButton: true, maxWidth: '280px' });
+    const popup = new maplibre.Popup({ closeButton: true, maxWidth: '520px' });
     popup.setLngLat([lngLat.lng, lngLat.lat]);
     popup.setDOMContent(container);
     popup.addTo(this._map);
