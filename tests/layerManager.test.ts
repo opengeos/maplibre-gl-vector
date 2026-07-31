@@ -161,6 +161,25 @@ describe('describeSource', () => {
 });
 
 describe('LayerManager GeoJSON path', () => {
+  it('keeps the normal URL path when the host loader declines a source', async () => {
+    const urlLoader = vi.fn().mockResolvedValue(null);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => JSON.stringify(POLYGON_FC),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { manager } = createManager({ urlLoader });
+
+    const info = await manager.addData('https://files.example.com/data.geojson');
+
+    expect(urlLoader).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith('https://files.example.com/data.geojson');
+    expect(info.source).toEqual({
+      kind: 'url',
+      url: 'https://files.example.com/data.geojson',
+    });
+  });
+
   it('detects extensionless GeoJSON loaded by the host and preserves its URL on reload', async () => {
     const reloaded = {
       ...POLYGON_FC,

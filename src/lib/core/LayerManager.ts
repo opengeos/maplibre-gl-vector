@@ -319,17 +319,21 @@ export class LayerManager {
       this._emit('loading', { message: `Downloading ${detected.name}...` });
       try {
         const loaded = await this._options.urlLoader(source);
-        const isGeoJSON = /(?:^|[/+])(?:geo)?json(?:;|$)/i.test(loaded.type);
-        if (detected.format === 'unknown' && isGeoJSON) detected.format = 'geojson';
-        const fileName =
-          isGeoJSON && !/\.[a-z0-9]+$/i.test(detected.name)
-            ? `${detected.name}.geojson`
-            : detected.name;
-        source =
-          typeof File !== 'undefined' && loaded instanceof File
-            ? loaded
-            : new File([loaded], fileName, { type: loaded.type });
-        this._materializedUrls.set(source, remoteUrl);
+        if (!loaded) {
+          remoteUrl = undefined;
+        } else {
+          const isGeoJSON = /(?:^|[/+])(?:geo)?json(?:;|$)/i.test(loaded.type);
+          if (detected.format === 'unknown' && isGeoJSON) detected.format = 'geojson';
+          const fileName =
+            isGeoJSON && !/\.[a-z0-9]+$/i.test(detected.name)
+              ? `${detected.name}.geojson`
+              : detected.name;
+          source =
+            typeof File !== 'undefined' && loaded instanceof File
+              ? loaded
+              : new File([loaded], fileName, { type: loaded.type });
+          this._materializedUrls.set(source, remoteUrl);
+        }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         this._emit('error', { error });
@@ -824,11 +828,16 @@ export class LayerManager {
     try {
       if (record.remoteUrl && this._options.urlLoader) {
         const loaded = await this._options.urlLoader(record.remoteUrl);
-        record.source =
-          typeof File !== 'undefined' && loaded instanceof File
-            ? loaded
-            : new File([loaded], this._defaultFileName(record), { type: loaded.type });
-        this._materializedUrls.set(record.source as object, record.remoteUrl);
+        if (loaded) {
+          record.source =
+            typeof File !== 'undefined' && loaded instanceof File
+              ? loaded
+              : new File([loaded], this._defaultFileName(record), { type: loaded.type });
+          this._materializedUrls.set(record.source as object, record.remoteUrl);
+        } else {
+          record.source = record.remoteUrl;
+          record.remoteUrl = undefined;
+        }
       }
       // Tear down the current presentation (mirrors setRenderMode).
       this._detachPicker(record);
