@@ -89,6 +89,8 @@ export interface AddLayersOptions {
   sourceLayer?: string;
   /** Existing map layer id to insert the new layers before */
   beforeId?: string;
+  /** Per-feature KMZ icon-image expression for point layers. */
+  kmlIconImage?: unknown[] | null;
 }
 
 /**
@@ -187,7 +189,8 @@ export function addVectorTileSource(
  * @returns The created map layer ids
  */
 export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): string[] {
-  const { layerId, geometryType, style, visible, opacity, sourceLayer, beforeId } = options;
+  const { layerId, geometryType, style, visible, opacity, sourceLayer, beforeId, kmlIconImage } =
+    options;
   const sourceId = sourceIdFor(layerId);
   const layout = { visibility: visible ? 'visible' : 'none' };
 
@@ -252,16 +255,34 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
     ]);
   }
 
-  return withLabel(
-    suffixesForGeometry(geometryType, style.extrusionEnabled === true).map((suffix) =>
+  const ids = suffixesForGeometry(geometryType, style.extrusionEnabled === true).map((suffix) =>
       add(mapLayerId(layerId, suffix), {
         type: SUFFIX_TYPES[suffix],
         ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
-        filter: SUFFIX_FILTERS[suffix],
+        filter:
+          suffix === 'circle' && kmlIconImage
+            ? ['all', SUFFIX_FILTERS.circle, ['!', ['has', '__geolibre_kml_icon_url']]]
+            : SUFFIX_FILTERS[suffix],
         paint: buildPaint(suffix, style, opacity),
       }),
-    ),
-  );
+    );
+  if (geometryType === 'point' && kmlIconImage) {
+    ids.push(
+      add(`${layerId}-kml-icon`, {
+        type: 'symbol',
+        filter: ['all', POINT_FILTER, ['has', '__geolibre_kml_icon_url']],
+        layout: {
+          ...layout,
+          'icon-image': kmlIconImage,
+          'icon-size': 1,
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: { 'icon-opacity': opacity },
+      }),
+    );
+  }
+  return withLabel(ids);
 }
 
 /**
