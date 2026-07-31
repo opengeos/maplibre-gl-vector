@@ -302,6 +302,10 @@ export class LayerManager {
     options: VectorLayerOptions = {},
   ): Promise<VectorLayerInfo> {
     const detected = detectSource(source, options.format);
+    const id = options.id ?? generateId('vector');
+    if (this._records.has(id)) {
+      throw new Error(`Layer "${id}" already exists`);
+    }
     let remoteUrl =
       typeof source === 'object' && source !== null
         ? this._materializedUrls.get(source as object)
@@ -312,16 +316,25 @@ export class LayerManager {
       this._options.urlLoader
     ) {
       remoteUrl = source;
-      const loaded = await this._options.urlLoader(source);
-      source =
-        typeof File !== 'undefined' && loaded instanceof File
-          ? loaded
-          : new File([loaded], detected.name, { type: loaded.type });
-      this._materializedUrls.set(source, remoteUrl);
-    }
-    const id = options.id ?? generateId('vector');
-    if (this._records.has(id)) {
-      throw new Error(`Layer "${id}" already exists`);
+      this._emit('loading', { message: `Downloading ${detected.name}...` });
+      try {
+        const loaded = await this._options.urlLoader(source);
+        const isGeoJSON = /(?:^|[/+])(?:geo)?json(?:;|$)/i.test(loaded.type);
+        if (detected.format === 'unknown' && isGeoJSON) detected.format = 'geojson';
+        const fileName =
+          isGeoJSON && !/\.[a-z0-9]+$/i.test(detected.name)
+            ? `${detected.name}.geojson`
+            : detected.name;
+        source =
+          typeof File !== 'undefined' && loaded instanceof File
+            ? loaded
+            : new File([loaded], fileName, { type: loaded.type });
+        this._materializedUrls.set(source, remoteUrl);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this._emit('error', { error });
+        throw error;
+      }
     }
 
     // A shapefile is several files. A lone `.shp` (or one missing its `.shx`/

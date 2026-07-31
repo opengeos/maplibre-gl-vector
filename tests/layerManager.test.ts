@@ -161,24 +161,40 @@ describe('describeSource', () => {
 });
 
 describe('LayerManager GeoJSON path', () => {
-  it('loads a remote source through the host urlLoader and preserves its URL descriptor', async () => {
-    const urlLoader = vi.fn().mockResolvedValue(
-      new Blob([JSON.stringify(POLYGON_FC)], { type: 'application/geo+json' }),
-    );
+  it('detects extensionless GeoJSON loaded by the host and preserves its URL on reload', async () => {
+    const reloaded = {
+      ...POLYGON_FC,
+      features: [...POLYGON_FC.features, ...POLYGON_FC.features],
+    };
+    const urlLoader = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Blob([JSON.stringify(POLYGON_FC)], { type: 'application/geo+json' }),
+      )
+      .mockResolvedValueOnce(
+        new Blob([JSON.stringify(reloaded)], { type: 'application/geo+json' }),
+      );
     const { manager, map } = createManager({ urlLoader });
 
-    const info = await manager.addData('https://files.example.com/data.geojson', {
+    const info = await manager.addData('https://api.example.com/items', {
       id: 'native-url',
     });
 
-    expect(urlLoader).toHaveBeenCalledWith('https://files.example.com/data.geojson');
+    expect(urlLoader).toHaveBeenCalledWith('https://api.example.com/items');
+    expect(info.format).toBe('geojson');
     expect(info.source).toEqual({
       kind: 'url',
-      url: 'https://files.example.com/data.geojson',
+      url: 'https://api.example.com/items',
     });
+    const refreshed = await manager.reloadLayer('native-url');
+    expect(urlLoader).toHaveBeenCalledTimes(2);
+    expect(refreshed?.source).toEqual(info.source);
     expect(map.addSource).toHaveBeenCalledWith(
       'native-url-source',
-      expect.objectContaining({ type: 'geojson' }),
+      expect.objectContaining({
+        type: 'geojson',
+        data: expect.objectContaining({ features: expect.arrayContaining(reloaded.features) }),
+      }),
     );
   });
 
@@ -601,6 +617,22 @@ describe('LayerManager engine path', () => {
       'loading',
       expect.objectContaining({ message: expect.stringContaining('2 layers') }),
     );
+  });
+
+  it('reuses one host download across every expanded container layer', async () => {
+    const urlLoader = vi.fn().mockResolvedValue(new Blob(['gpkg']));
+    const engine = createMockEngine({
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
+    });
+    const { manager } = createManager({ urlLoader }, engine);
+
+    await manager.addData('https://files.example.com/city.gpkg', { id: 'city' });
+
+    expect(urlLoader).toHaveBeenCalledTimes(1);
+    expect(manager.getLayers().map((layer) => layer.source)).toEqual([
+      { kind: 'url', url: 'https://files.example.com/city.gpkg' },
+      { kind: 'url', url: 'https://files.example.com/city.gpkg' },
+    ]);
   });
 
   it('skips expansion when a sourceLayer is requested', async () => {
