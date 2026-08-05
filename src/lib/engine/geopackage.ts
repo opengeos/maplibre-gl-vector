@@ -40,10 +40,11 @@ interface GeoPackageLayer {
 export interface GeoPackageReadResult {
   featureCollection: FeatureCollection<Geometry | null>;
   /**
-   * The EPSG code the geometries are stored in, or null when they are already
-   * WGS84 lon/lat (or the CRS is undefined). The caller reprojects when set.
+   * The CRS the geometries are stored in, as an `EPSG:<code>` string or a raw
+   * WKT definition, or null when they are already WGS84 lon/lat (or the CRS is
+   * undefined). The caller reprojects when set.
    */
-  epsgCode: number | null;
+  sourceCrs: string | null;
 }
 
 // Envelope byte sizes by GeoPackage envelope indicator: 0=none, 1=XY, 2=XYZ,
@@ -331,14 +332,22 @@ function selectLayer(
 const WGS84_EPSG_CODES = new Set([4326, 4979]);
 
 /**
- * Resolves the layer's SRS to an EPSG code, or null when it is WGS84 lon/lat or
- * undefined (srs_id 0 = undefined geographic, -1 = undefined cartesian). Only
- * EPSG-organization rows are reprojectable here.
+ * Resolves the layer's SRS to something `ST_Transform` accepts — an
+ * `EPSG:<code>` string, or the row's WKT definition — or null when the
+ * geometries are already WGS84 lon/lat or the CRS is undefined (srs_id 0 =
+ * undefined geographic, -1 = undefined cartesian).
+ *
+ * EPSG-organization rows resolve to their code. Anything else falls back to the
+ * stored `definition`: a GeoPackage may mint its own srs_id under an
+ * organization like "CUSTOM" or "NONE" while still carrying a perfectly usable
+ * WKT (a statewide wetlands export does exactly this with Conus Albers).
+ * Returning null for those left the layer in its source units, so it rendered
+ * off the map with "Invalid LngLat latitude value" and no explanation.
  */
-function resolveEpsgCode(
+function resolveSourceCrs(
   db: SqlJsDatabase,
   srsId: number | null,
-): number | null {
+): string | null {
   // srs_id 0 = undefined geographic, -1 = undefined cartesian (GeoPackage spec).
   if (
     srsId == null ||
@@ -357,19 +366,41 @@ function resolveEpsgCode(
   if (!row) return null;
   const organization = String(row[0] ?? "").toUpperCase();
   const code = row[1] == null ? null : Number(row[1]);
-  // A malformed organization_coordsys_id (non-numeric -> NaN, or a non-positive
-  // value) is treated as "no reprojection" rather than tagging the collection
-  // with an invalid "EPSG:<code>" that silently fails to reproject and
-  // misrenders. EPSG codes are positive integers.
+  // EPSG codes are positive integers; a malformed organization_coordsys_id
+  // (non-numeric -> NaN, or non-positive) falls through to the definition
+  // rather than tagging the layer with an invalid "EPSG:<code>".
   if (
-    organization !== "EPSG" ||
-    code == null ||
-    !Number.isInteger(code) ||
-    code <= 0
+    organization === "EPSG" &&
+    code != null &&
+    Number.isInteger(code) &&
+    code > 0
   ) {
+    return WGS84_EPSG_CODES.has(code) ? null : `EPSG:${code}`;
+  }
+  return readSrsDefinition(db, srsId);
+}
+
+/**
+ * Reads a spatial-reference row's WKT `definition`, or null when there is none
+ * to use. Queried separately so a non-conformant file whose
+ * `gpkg_spatial_ref_sys` lacks the (spec-required) `definition` column still
+ * reads, instead of failing the whole layer on an unknown-column error.
+ */
+function readSrsDefinition(db: SqlJsDatabase, srsId: number): string | null {
+  let value: unknown;
+  try {
+    value = db.exec(
+      `SELECT definition FROM gpkg_spatial_ref_sys WHERE srs_id = :id`,
+      { ":id": srsId },
+    )[0]?.values[0]?.[0];
+  } catch {
     return null;
   }
-  return WGS84_EPSG_CODES.has(code) ? null : code;
+  const definition = typeof value === "string" ? value.trim() : "";
+  // The spec stores the literal "undefined" for the two undefined SRS rows;
+  // treat anything unusable as "no reprojection".
+  if (!definition || definition.toLowerCase() === "undefined") return null;
+  return definition;
 }
 
 /** Reads every feature of `layer` from an open database into a FeatureCollection. */
@@ -496,7 +527,7 @@ export function readGeoPackageSync(
     }
     return {
       featureCollection: readLayerFeatures(db, layer),
-      epsgCode: resolveEpsgCode(db, layer.srsId),
+      sourceCrs: resolveSourceCrs(db, layer.srsId),
     };
   } finally {
     db.close();
