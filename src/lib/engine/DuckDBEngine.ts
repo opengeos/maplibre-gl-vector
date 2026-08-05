@@ -6,6 +6,10 @@ import { mergeGeometryCategory } from "../utils/geometry";
 import { loadDuckDB, type LoadedDuckDB } from "./duckdbLoader";
 import { ensureGpkgFeatureCount } from "./gpkgOgrContents";
 import { listGeoPackageLayers, readGeoPackage } from "./geopackage";
+import {
+  encodeFeatureCollection,
+  sliceFeatureCollection,
+} from "./geojsonBytes";
 import { encodeTileFromFeatures, tileBbox4326 } from "../tiles/mvtFallback";
 import { assertRemoteFileSupported, probeRemoteSize } from "../utils/remote";
 import {
@@ -63,6 +67,16 @@ import {
  * colliding with a real attribute in the input.
  */
 const FID_COLUMN = "__mgv_reproject_fid";
+
+/**
+ * Features per registered file when ingesting a GeoPackage.
+ *
+ * Bounds peak memory to one batch rather than the whole layer. Large enough
+ * that a typical layer is still a single round trip, small enough that a
+ * half-million-feature layer never materializes a document near the maximum
+ * JavaScript string length.
+ */
+const GEOPACKAGE_INGEST_BATCH = 50_000;
 
 function isWgs84AuthCrs(crs: string): boolean {
   switch (crs.toUpperCase()) {
@@ -356,7 +370,9 @@ export class DuckDBEngine implements IEngine {
     return this._queue.enqueue(async () => {
       const meta = this._requireTable(tableName);
       if (!meta.propertyColumns.includes(property)) return [];
-      const result = await this._loaded.conn.query(propertyValuesQuery(tableName, property));
+      const result = await this._loaded.conn.query(
+        propertyValuesQuery(tableName, property),
+      );
       return result.toArray().map((row) => sanitizeValue(row.__value));
     });
   }
@@ -383,7 +399,7 @@ export class DuckDBEngine implements IEngine {
       const geojsonName = `reproject_${this._reprojectSeq++}.geojson`;
       await this._loaded.db.registerFileBuffer(
         geojsonName,
-        new TextEncoder().encode(JSON.stringify(geomsOnly)),
+        encodeFeatureCollection(geomsOnly),
       );
       try {
         const result = await this._loaded.conn.query(
@@ -395,7 +411,10 @@ export class DuckDBEngine implements IEngine {
         // the result is robust to DuckDB returning rows out of source order.
         const reprojected = new Map<number, Geometry>();
         for (const row of result.toArray()) {
-          reprojected.set(Number(row.fid), JSON.parse(String(row.__geojson)) as Geometry);
+          reprojected.set(
+            Number(row.fid),
+            JSON.parse(String(row.__geojson)) as Geometry,
+          );
         }
         return {
           type: "FeatureCollection",
@@ -687,7 +706,7 @@ export class DuckDBEngine implements IEngine {
     bytes: Uint8Array,
     options: IngestOptions,
   ): Promise<void> {
-    const { featureCollection, epsgCode } = await readGeoPackage(
+    const { featureCollection, sourceCrs } = await readGeoPackage(
       bytes,
       options.sourceLayer,
       this._sqlJsBaseUrl,
@@ -701,26 +720,42 @@ export class DuckDBEngine implements IEngine {
       );
       return;
     }
-    const geojsonName = `${tableName}.geojson`;
-    await this._loaded.db.registerFileBuffer(
-      geojsonName,
-      new TextEncoder().encode(JSON.stringify(featureCollection)),
+    // ST_Read exposes a GeoJSON's geometry as a native GEOMETRY column named
+    // `geom`; reproject it to WGS84 when the GeoPackage stored another CRS so
+    // the rest of the pipeline (tiles, export) can assume EPSG:4326.
+    const geomExpr =
+      sourceCrs == null
+        ? "geom"
+        : `ST_Transform(geom, ${quoteLiteral(sourceCrs)}, 'EPSG:4326', always_xy := true)`;
+    // Ingested in batches so neither the JSON document nor the registered
+    // buffer for the whole layer has to exist at once: a half-million-feature
+    // layer otherwise exceeds the maximum JavaScript string length in
+    // JSON.stringify long before it runs out of memory.
+    const batches = sliceFeatureCollection(
+      featureCollection,
+      GEOPACKAGE_INGEST_BATCH,
     );
-    try {
-      const reader = `ST_Read(${quoteLiteral(geojsonName)})`;
-      // ST_Read exposes a GeoJSON's geometry as a native GEOMETRY column named
-      // `geom`; reproject it to WGS84 when the GeoPackage stored another CRS so
-      // the rest of the pipeline (tiles, export) can assume EPSG:4326.
-      const geomExpr =
-        epsgCode == null
-          ? "geom"
-          : `ST_Transform(geom, ${quoteLiteral(`EPSG:${epsgCode}`)}, 'EPSG:4326', always_xy := true)`;
-      await this._loaded.conn.query(
-        `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
-          `SELECT * EXCLUDE (geom), ${geomExpr} AS geom FROM ${reader}`,
+    for (let index = 0; index < batches.length; index += 1) {
+      const geojsonName = `${tableName}.${index}.geojson`;
+      await this._loaded.db.registerFileBuffer(
+        geojsonName,
+        encodeFeatureCollection(batches[index]),
       );
-    } finally {
-      await this._loaded.db.dropFile(geojsonName).catch(() => undefined);
+      try {
+        const reader = `ST_Read(${quoteLiteral(geojsonName)})`;
+        const select = `SELECT * EXCLUDE (geom), ${geomExpr} AS geom FROM ${reader}`;
+        // The first batch defines the schema; the rest are matched BY NAME so a
+        // column ST_Read happens to omit from a later batch (an all-null
+        // property, a per-row BLOB the reader drops) fills with NULL instead of
+        // failing on column count.
+        await this._loaded.conn.query(
+          index === 0
+            ? `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ${select}`
+            : `INSERT INTO ${quoteIdent(tableName)} BY NAME ${select}`,
+        );
+      } finally {
+        await this._loaded.db.dropFile(geojsonName).catch(() => undefined);
+      }
     }
   }
 
@@ -787,7 +822,12 @@ export class DuckDBEngine implements IEngine {
             );
       try {
         await this._loaded.conn.query(
-          createTableFromGeometrySql(tableName, reader, geometryColumn, sourceCrs),
+          createTableFromGeometrySql(
+            tableName,
+            reader,
+            geometryColumn,
+            sourceCrs,
+          ),
         );
       } catch (error) {
         // DuckDB Spatial's WKB reader rejects surface geometries (TIN /
@@ -795,7 +835,10 @@ export class DuckDBEngine implements IEngine {
         // shapefiles (3D buildings). Re-read the raw WKB and decode it in JS.
         // Only ST_Read formats can fall back this way (Parquet is read via
         // read_parquet, not GDAL), so those propagate the original error.
-        if (options.format === "geoparquet" || !isUnsupportedSurfaceWkbError(error)) {
+        if (
+          options.format === "geoparquet" ||
+          !isUnsupportedSurfaceWkbError(error)
+        ) {
           throw error;
         }
         await this._createTableFromSurfaceWkb(tableName, path, options);
@@ -869,7 +912,7 @@ export class DuckDBEngine implements IEngine {
     const geojsonName = `${tableName}.surface.geojson`;
     await this._loaded.db.registerFileBuffer(
       geojsonName,
-      new TextEncoder().encode(JSON.stringify(featureCollection)),
+      encodeFeatureCollection(featureCollection),
     );
     try {
       const reader = `ST_Read(${quoteLiteral(geojsonName)})`;

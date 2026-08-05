@@ -99,6 +99,12 @@ interface BuildOptions {
   srsId?: number;
   /** Register an EPSG row in gpkg_spatial_ref_sys for srsId. */
   epsgRow?: boolean;
+  /**
+   * Register a non-EPSG row (organization "CUSTOM") carrying this WKT as its
+   * `definition`, and give the table a `definition` column. Mirrors producers
+   * that mint their own srs_id, as a statewide wetlands export does.
+   */
+  customSrs?: { definition: string };
   tableName?: string;
   /** Additional feature tables to register (name -> srsId). */
   extraTables?: Array<{ name: string; srsId: number }>;
@@ -123,7 +129,7 @@ function buildGpkg(options: BuildOptions = {}): Uint8Array {
     CREATE TABLE gpkg_spatial_ref_sys (
       srs_id INTEGER NOT NULL PRIMARY KEY,
       organization TEXT,
-      organization_coordsys_id INTEGER
+      organization_coordsys_id INTEGER${options.customSrs ? ",\n      definition TEXT" : ""}
     );
   `);
 
@@ -153,6 +159,14 @@ function buildGpkg(options: BuildOptions = {}): Uint8Array {
       "INSERT INTO gpkg_spatial_ref_sys (srs_id, organization, organization_coordsys_id) " +
         "VALUES (:s, :o, :c)",
       { ":s": srsId, ":o": "EPSG", ":c": srsId },
+    );
+  }
+
+  if (options.customSrs) {
+    db.run(
+      "INSERT INTO gpkg_spatial_ref_sys (srs_id, organization, organization_coordsys_id, definition) " +
+        "VALUES (:s, 'CUSTOM', 0, :d)",
+      { ":s": srsId, ":d": options.customSrs.definition },
     );
   }
 
@@ -346,13 +360,16 @@ describe("isLikelyGeoPackage", () => {
   });
 });
 
+const ALBERS_WKT =
+  'PROJCS["NAD_1983_Albers",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["Central_Meridian",-96.0],UNIT["Meter",1.0]]';
+
 describe("readGeoPackageSync", () => {
   it("reads features and reports no EPSG for a WGS84 layer", () => {
-    const { featureCollection, epsgCode } = readGeoPackageSync(
+    const { featureCollection, sourceCrs } = readGeoPackageSync(
       SQL,
       buildGpkg(),
     );
-    expect(epsgCode).toBeNull();
+    expect(sourceCrs).toBeNull();
     expect(featureCollection.features).toHaveLength(1);
     const feature = featureCollection.features[0];
     expect(feature.geometry).toEqual({ type: "Point", coordinates: [1, 2] });
@@ -361,11 +378,57 @@ describe("readGeoPackageSync", () => {
   });
 
   it("reports the source EPSG code for a projected layer", () => {
-    const { epsgCode } = readGeoPackageSync(
+    const { sourceCrs } = readGeoPackageSync(
       SQL,
       buildGpkg({ srsId: 32643, epsgRow: true }),
     );
-    expect(epsgCode).toBe(32643);
+    expect(sourceCrs).toBe("EPSG:32643");
+  });
+
+  it("falls back to the WKT definition for a non-EPSG organization", () => {
+    // A GeoPackage may mint its own srs_id under organization "CUSTOM" and
+    // still carry a usable WKT. Returning null here left the layer in its
+    // source units, rendering off the map with "Invalid LngLat latitude value".
+    const { sourceCrs } = readGeoPackageSync(
+      SQL,
+      buildGpkg({ srsId: 300001, customSrs: { definition: ALBERS_WKT } }),
+    );
+    expect(sourceCrs).toBe(ALBERS_WKT);
+  });
+
+  it("prefers the EPSG code over the definition when the row is an EPSG row", () => {
+    const { sourceCrs } = readGeoPackageSync(
+      SQL,
+      buildGpkg({ srsId: 32643, epsgRow: true }),
+    );
+    expect(sourceCrs).toBe("EPSG:32643");
+  });
+
+  it('reports no CRS when the custom definition is the spec\'s "undefined"', () => {
+    const { sourceCrs } = readGeoPackageSync(
+      SQL,
+      buildGpkg({ srsId: 300002, customSrs: { definition: "undefined" } }),
+    );
+    expect(sourceCrs).toBeNull();
+  });
+
+  it("reports no CRS when a non-EPSG row has a blank definition", () => {
+    const { sourceCrs } = readGeoPackageSync(
+      SQL,
+      buildGpkg({ srsId: 300003, customSrs: { definition: "   " } }),
+    );
+    expect(sourceCrs).toBeNull();
+  });
+
+  it("survives a gpkg_spatial_ref_sys without the definition column", () => {
+    // Non-conformant producers omit it; the layer must still read rather than
+    // failing on an unknown-column error.
+    const { featureCollection, sourceCrs } = readGeoPackageSync(
+      SQL,
+      buildGpkg({ srsId: 300004 }),
+    );
+    expect(sourceCrs).toBeNull();
+    expect(featureCollection.features).toHaveLength(1);
   });
 
   it("reads a named layer from a multi-layer GeoPackage", () => {
