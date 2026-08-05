@@ -105,6 +105,12 @@ interface BuildOptions {
    * that mint their own srs_id, as a statewide wetlands export does.
    */
   customSrs?: { definition: string };
+  /**
+   * WKT to store as the EPSG row's `definition`. Without one the table has no
+   * `definition` column at all, so a regression preferring WKT over the EPSG
+   * code would go undetected.
+   */
+  epsgDefinition?: string;
   tableName?: string;
   /** Additional feature tables to register (name -> srsId). */
   extraTables?: Array<{ name: string; srsId: number }>;
@@ -129,7 +135,7 @@ function buildGpkg(options: BuildOptions = {}): Uint8Array {
     CREATE TABLE gpkg_spatial_ref_sys (
       srs_id INTEGER NOT NULL PRIMARY KEY,
       organization TEXT,
-      organization_coordsys_id INTEGER${options.customSrs ? ",\n      definition TEXT" : ""}
+      organization_coordsys_id INTEGER${options.customSrs || options.epsgDefinition ? ",\n      definition TEXT" : ""}
     );
   `);
 
@@ -155,11 +161,19 @@ function buildGpkg(options: BuildOptions = {}): Uint8Array {
   }
 
   if (options.epsgRow) {
-    db.run(
-      "INSERT INTO gpkg_spatial_ref_sys (srs_id, organization, organization_coordsys_id) " +
-        "VALUES (:s, :o, :c)",
-      { ":s": srsId, ":o": "EPSG", ":c": srsId },
-    );
+    if (options.epsgDefinition) {
+      db.run(
+        "INSERT INTO gpkg_spatial_ref_sys (srs_id, organization, organization_coordsys_id, definition) " +
+          "VALUES (:s, 'EPSG', :c, :d)",
+        { ":s": srsId, ":c": srsId, ":d": options.epsgDefinition },
+      );
+    } else {
+      db.run(
+        "INSERT INTO gpkg_spatial_ref_sys (srs_id, organization, organization_coordsys_id) " +
+          "VALUES (:s, :o, :c)",
+        { ":s": srsId, ":o": "EPSG", ":c": srsId },
+      );
+    }
   }
 
   if (options.customSrs) {
@@ -396,10 +410,10 @@ describe("readGeoPackageSync", () => {
     expect(sourceCrs).toBe(ALBERS_WKT);
   });
 
-  it("prefers the EPSG code over the definition when the row is an EPSG row", () => {
+  it("prefers the EPSG code over a definition the same row also carries", () => {
     const { sourceCrs } = readGeoPackageSync(
       SQL,
-      buildGpkg({ srsId: 32643, epsgRow: true }),
+      buildGpkg({ srsId: 32643, epsgRow: true, epsgDefinition: ALBERS_WKT }),
     );
     expect(sourceCrs).toBe("EPSG:32643");
   });

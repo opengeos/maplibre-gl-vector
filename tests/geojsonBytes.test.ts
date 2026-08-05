@@ -156,7 +156,30 @@ describe("sliceFeatureCollection", () => {
 
   it("rejects a non-positive batch size", () => {
     expect(() => sliceFeatureCollection(collection(1), 0)).toThrow(
-      /greater than zero/,
+      /positive integer/,
     );
+    expect(() => sliceFeatureCollection(collection(1), -5)).toThrow(
+      /positive integer/,
+    );
+  });
+
+  it("rejects NaN, which would otherwise drop every feature", () => {
+    // NaN slips past a `<= 0` guard, and `start += NaN` ends the loop on the
+    // first pass, so the collection would come back as one empty slice.
+    expect(() => sliceFeatureCollection(collection(10), Number.NaN)).toThrow(
+      /positive integer/,
+    );
+  });
+
+  it("rejects a fractional size, which would repeat or omit features", () => {
+    expect(() => sliceFeatureCollection(collection(10), 1.5)).toThrow(
+      /positive integer/,
+    );
+  });
+
+  it("rejects a non-finite size", () => {
+    expect(() =>
+      sliceFeatureCollection(collection(10), Number.POSITIVE_INFINITY),
+    ).toThrow(/positive integer/);
   });
 });

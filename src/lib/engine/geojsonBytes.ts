@@ -67,14 +67,19 @@ export function encodeFeatureCollection(
  * tab.
  *
  * @param collection - The collection to split.
- * @param size - Maximum features per slice; must be positive.
+ * @param size - Maximum features per slice; must be a positive safe integer.
  * @returns One slice per batch, or a single empty slice for an empty input.
  */
 export function sliceFeatureCollection(
   collection: FeatureCollection<Geometry | null>,
   size: number,
 ): FeatureCollection<Geometry | null>[] {
-  if (size <= 0) throw new Error("Batch size must be greater than zero.");
+  // Rejected rather than coerced: NaN slips past a `<= 0` guard and yields one
+  // empty slice, silently dropping every feature, and a fractional size gives
+  // truncated `Array.prototype.slice` bounds that can repeat or omit features.
+  if (!Number.isSafeInteger(size) || size <= 0) {
+    throw new Error("Batch size must be a positive integer.");
+  }
   const { features, ...rest } = collection;
   if (features.length === 0) return [{ ...rest, features: [] }];
   const slices: FeatureCollection<Geometry | null>[] = [];

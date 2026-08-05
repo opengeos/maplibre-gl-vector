@@ -735,6 +735,29 @@ export class DuckDBEngine implements IEngine {
       featureCollection,
       GEOPACKAGE_INGEST_BATCH,
     );
+    try {
+      await this._appendGeoPackageBatches(tableName, batches, geomExpr);
+    } catch (error) {
+      // A failure part-way through leaves the table holding the batches that
+      // did land. `ingest` rethrows before registering it in `_tables`, so
+      // `dropTable` could never reach it — drop it here or it leaks for the
+      // lifetime of the connection.
+      await this._loaded.conn
+        .query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`)
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /**
+   * Creates the ingest table from the first batch and appends the rest, so a
+   * large layer never needs its whole GeoJSON document in memory at once.
+   */
+  private async _appendGeoPackageBatches(
+    tableName: string,
+    batches: FeatureCollection<Geometry | null>[],
+    geomExpr: string,
+  ): Promise<void> {
     for (let index = 0; index < batches.length; index += 1) {
       const geojsonName = `${tableName}.${index}.geojson`;
       await this._loaded.db.registerFileBuffer(
