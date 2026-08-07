@@ -322,9 +322,15 @@ export class DuckDBEngine implements IEngine {
       }
 
       const columns = await this._describeTable(tableName);
-      meta.bboxColumn = columns.find((c) =>
-        isBboxCoveringColumn(c.name, c.type),
-      )?.name;
+      // A GeoParquet covering bbox is expressed in the file's source CRS.
+      // After an override reprojects `geom` to WGS84, that raw bbox can no
+      // longer be compared with WGS84 tile bounds. Fall back to geometry
+      // filtering in this uncommon streaming case rather than pruning away
+      // valid rows with mismatched coordinate systems.
+      meta.bboxColumn =
+        streamed && options.sourceCrs?.trim()
+          ? undefined
+          : columns.find((c) => isBboxCoveringColumn(c.name, c.type))?.name;
       meta.propertyColumns = columns
         .filter(
           (c) =>
@@ -706,11 +712,12 @@ export class DuckDBEngine implements IEngine {
     bytes: Uint8Array,
     options: IngestOptions,
   ): Promise<void> {
-    const { featureCollection, sourceCrs } = await readGeoPackage(
+    const { featureCollection, sourceCrs: embeddedSourceCrs } = await readGeoPackage(
       bytes,
       options.sourceLayer,
       this._sqlJsBaseUrl,
     );
+    const sourceCrs = options.sourceCrs?.trim() || embeddedSourceCrs;
     // ST_Read of an empty GeoJSON exposes no geometry column, so the EXCLUDE
     // below would fail; create an empty table with just `geom` instead.
     if (featureCollection.features.length === 0) {
@@ -833,16 +840,16 @@ export class DuckDBEngine implements IEngine {
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
       // Reproject the source geometry to WGS84 so the rest of the pipeline
-      // (tiles, export) can assume EPSG:4326. GeoParquet is read via
-      // read_parquet (not GDAL) and carries no ST_Read_Meta CRS, so it is left
-      // in its source coordinates as before.
+      // (tiles, export) can assume EPSG:4326. A caller override also covers
+      // GeoParquet written without usable CRS metadata.
       const sourceCrs =
-        options.format === "geoparquet"
+        options.sourceCrs?.trim() ||
+        (options.format === "geoparquet"
           ? null
           : await this._readSourceCrs(
               gdalPath(options.format, path),
               await this._prjWkt(options, path),
-            );
+            ));
       try {
         await this._loaded.conn.query(
           createTableFromGeometrySql(
@@ -874,7 +881,7 @@ export class DuckDBEngine implements IEngine {
       const wktName = WKT_COLUMN_NAMES.map((n) => lower.get(n)).find(Boolean);
       if (wktName) {
         await this._loaded.conn.query(
-          createTableFromWktSql(tableName, reader, wktName),
+          createTableFromWktSql(tableName, reader, wktName, options.sourceCrs?.trim() || null),
         );
         return;
       }
@@ -883,7 +890,13 @@ export class DuckDBEngine implements IEngine {
         const latName = lower.get(lat);
         if (lonName && latName) {
           await this._loaded.conn.query(
-            createTableFromLonLatSql(tableName, reader, lonName, latName),
+            createTableFromLonLatSql(
+              tableName,
+              reader,
+              lonName,
+              latName,
+              options.sourceCrs?.trim() || null,
+            ),
           );
           return;
         }
@@ -927,10 +940,12 @@ export class DuckDBEngine implements IEngine {
     const result = await this._loaded.conn.query(`SELECT * FROM ${wkbReader}`);
     const rows = result.toArray().map((row) => row as Record<string, unknown>);
     const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
-    const sourceCrs = await this._readSourceCrs(
-      gdalPath(options.format, path),
-      await this._prjWkt(options, path),
-    );
+    const sourceCrs =
+      options.sourceCrs?.trim() ||
+      (await this._readSourceCrs(
+        gdalPath(options.format, path),
+        await this._prjWkt(options, path),
+      ));
 
     const geojsonName = `${tableName}.surface.geojson`;
     await this._loaded.db.registerFileBuffer(
@@ -1052,7 +1067,12 @@ export class DuckDBEngine implements IEngine {
       throw new Error("No geometry column found in GeoParquet source");
     }
     await this._loaded.conn.query(
-      createViewFromGeometrySql(tableName, reader, geometryColumn),
+      createViewFromGeometrySql(
+        tableName,
+        reader,
+        geometryColumn,
+        options.sourceCrs?.trim() || null,
+      ),
     );
   }
 

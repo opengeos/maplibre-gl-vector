@@ -564,6 +564,13 @@ export interface VectorLayerOptions {
   sourceLayer?: string;
 
   /**
+   * CRS to treat the source coordinates as, such as `EPSG:28992`.
+   * Overrides CRS metadata embedded in the source. Useful for files whose
+   * producer omitted or wrote incorrect CRS metadata.
+   */
+  sourceCrs?: string;
+
+  /**
    * Layers to load from a multi-layer container, as one vector layer each.
    *
    * Skips the picker (and {@link VectorControlOptions.selectLayers}), so a
@@ -687,6 +694,8 @@ export interface VectorLayerInfo {
   ingestMode: IngestMode;
   /** Named layer inside a multi-layer container, when one was selected */
   sourceLayer?: string;
+  /** Source CRS override used while ingesting this layer, when supplied. */
+  sourceCrs?: string;
   /** Map layer id this layer's map layers sit before, when set */
   beforeId?: string;
   /** Current style */

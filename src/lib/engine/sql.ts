@@ -246,11 +246,13 @@ export function createTableFromWktSql(
   tableName: string,
   reader: string,
   wktColumn: string,
+  sourceCrs: string | null = null,
 ): string {
+  const geom = reprojectToWgs84Sql(`ST_GeomFromText(${quoteIdent(wktColumn)})`, sourceCrs);
   return (
     `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
     `SELECT * EXCLUDE (${quoteIdent(wktColumn)}), ` +
-    `ST_GeomFromText(${quoteIdent(wktColumn)}) AS geom FROM ${reader}`
+    `${geom} AS geom FROM ${reader}`
   );
 }
 
@@ -269,10 +271,15 @@ export function createTableFromLonLatSql(
   reader: string,
   lonColumn: string,
   latColumn: string,
+  sourceCrs: string | null = null,
 ): string {
+  const geom = reprojectToWgs84Sql(
+    `ST_Point(${quoteIdent(lonColumn)}, ${quoteIdent(latColumn)})`,
+    sourceCrs,
+  );
   return (
     `CREATE OR REPLACE TABLE ${quoteIdent(tableName)} AS ` +
-    `SELECT *, ST_Point(${quoteIdent(lonColumn)}, ${quoteIdent(latColumn)}) AS geom ` +
+    `SELECT *, ${geom} AS geom ` +
     `FROM ${reader}`
   );
 }
@@ -310,8 +317,9 @@ export function createViewFromGeometrySql(
   tableName: string,
   reader: string,
   geometry: DetectedGeometryColumn,
+  sourceCrs: string | null = null,
 ): string {
-  return createRelationFromGeometrySql('VIEW', tableName, reader, geometry);
+  return createRelationFromGeometrySql('VIEW', tableName, reader, geometry, sourceCrs);
 }
 
 /**

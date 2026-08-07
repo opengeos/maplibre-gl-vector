@@ -414,6 +414,7 @@ export class LayerManager {
         picker: options.picker ?? this._options.enablePicker ?? true,
         ingestMode: options.ingestMode ?? this._options.defaultIngestMode ?? 'table',
         sourceLayer: options.sourceLayer,
+        sourceCrs: options.sourceCrs?.trim() || undefined,
         beforeId: options.beforeId ?? this._options.beforeId,
         style,
         sourceId: sourceIdFor(id),
@@ -864,6 +865,7 @@ export class LayerManager {
         renderMode: record.info.renderMode,
         ingestMode: record.info.ingestMode,
         sourceLayer: record.sourceLayer,
+        sourceCrs: record.info.sourceCrs,
       };
       if (record.info.format === 'geojson' && record.info.renderMode !== 'tiles') {
         await this._addGeoJSON(record, reloadOptions);
@@ -1184,6 +1186,7 @@ export class LayerManager {
     const summary = await engine.ingest(source, tableName, {
       format: record.info.format,
       sourceLayer: record.sourceLayer,
+      sourceCrs: record.info.sourceCrs,
       fileName: record.fileName ?? this._defaultFileName(record),
       mode: record.info.ingestMode,
       companionFiles: record.companionFiles,

@@ -216,6 +216,26 @@ describe('CSV table creation', () => {
     const sql = createTableFromLonLatSql('t1', "read_csv('f.csv')", 'lon', 'lat');
     expect(sql).toContain('ST_Point("lon", "lat") AS geom');
   });
+
+  it('reprojects WKT geometry from an explicit source CRS', () => {
+    const sql = createTableFromWktSql('t1', "read_csv('f.csv')", 'wkt', 'EPSG:28992');
+    expect(sql).toContain(
+      `ST_Transform(ST_GeomFromText("wkt"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
+    );
+  });
+
+  it('reprojects coordinate columns from an explicit source CRS', () => {
+    const sql = createTableFromLonLatSql(
+      't1',
+      "read_csv('f.csv')",
+      'x',
+      'y',
+      'EPSG:28992',
+    );
+    expect(sql).toContain(
+      `ST_Transform(ST_Point("x", "y"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
+    );
+  });
 });
 
 describe('summaryQuery', () => {
@@ -297,6 +317,19 @@ describe('streaming ingest SQL', () => {
       }),
     ).toBe(
       'CREATE OR REPLACE VIEW "t1" AS SELECT * EXCLUDE ("geometry"), ST_GeomFromWKB(from_base64("geometry")) AS geom FROM read_parquet(\'f.parquet\')',
+    );
+  });
+
+  it('reprojects a streaming view from an explicit source CRS', () => {
+    expect(
+      createViewFromGeometrySql(
+        't1',
+        "read_parquet('f.parquet')",
+        { name: 'geometry', encoding: 'wkb' },
+        'EPSG:28992',
+      ),
+    ).toContain(
+      `ST_Transform(ST_GeomFromWKB("geometry"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
     );
   });
 

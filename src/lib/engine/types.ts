@@ -10,6 +10,8 @@ export interface IngestOptions {
   format: VectorFormat;
   /** Named layer inside multi-layer containers (e.g. a GeoPackage table) */
   sourceLayer?: string;
+  /** Explicit source CRS override (for example `EPSG:28992`). */
+  sourceCrs?: string;
   /** Original file name, used to pick a registration name */
   fileName?: string;
   /** Requested ingest mode (streaming applies to GeoParquet only) */
