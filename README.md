@@ -149,6 +149,9 @@ await control.addData(file, { sourceCrs: "EPSG:28992" });
 ```
 
 The geometry is reprojected to WGS84 during either table or streaming ingest.
+Streaming sources with an override use geometry filtering because a covering
+bbox column remains expressed in the original CRS and cannot safely prune
+WGS84 tile queries.
 
 In streaming mode the file is wrapped in a view and queried directly - nothing is copied into the database. Remote files are read with **HTTP range requests**, and when the file has a GeoParquet 1.1 bbox covering column (named `bbox` or anything ending in `_bbox`, e.g. `geometry_bbox`), the per-tile filter is pushed into parquet row-group statistics so only the row groups intersecting each tile are downloaded. The layer summary (count/extent) also comes from the bbox stats instead of a geometry scan.
 

@@ -322,9 +322,15 @@ export class DuckDBEngine implements IEngine {
       }
 
       const columns = await this._describeTable(tableName);
-      meta.bboxColumn = columns.find((c) =>
-        isBboxCoveringColumn(c.name, c.type),
-      )?.name;
+      // A GeoParquet covering bbox is expressed in the file's source CRS.
+      // After an override reprojects `geom` to WGS84, that raw bbox can no
+      // longer be compared with WGS84 tile bounds. Fall back to geometry
+      // filtering in this uncommon streaming case rather than pruning away
+      // valid rows with mismatched coordinate systems.
+      meta.bboxColumn =
+        streamed && options.sourceCrs?.trim()
+          ? undefined
+          : columns.find((c) => isBboxCoveringColumn(c.name, c.type))?.name;
       meta.propertyColumns = columns
         .filter(
           (c) =>
