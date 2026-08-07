@@ -833,16 +833,16 @@ export class DuckDBEngine implements IEngine {
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
       // Reproject the source geometry to WGS84 so the rest of the pipeline
-      // (tiles, export) can assume EPSG:4326. GeoParquet is read via
-      // read_parquet (not GDAL) and carries no ST_Read_Meta CRS, so it is left
-      // in its source coordinates as before.
+      // (tiles, export) can assume EPSG:4326. A caller override also covers
+      // GeoParquet written without usable CRS metadata.
       const sourceCrs =
-        options.format === "geoparquet"
+        options.sourceCrs?.trim() ||
+        (options.format === "geoparquet"
           ? null
           : await this._readSourceCrs(
               gdalPath(options.format, path),
               await this._prjWkt(options, path),
-            );
+            ));
       try {
         await this._loaded.conn.query(
           createTableFromGeometrySql(
@@ -1052,7 +1052,12 @@ export class DuckDBEngine implements IEngine {
       throw new Error("No geometry column found in GeoParquet source");
     }
     await this._loaded.conn.query(
-      createViewFromGeometrySql(tableName, reader, geometryColumn),
+      createViewFromGeometrySql(
+        tableName,
+        reader,
+        geometryColumn,
+        options.sourceCrs?.trim() || null,
+      ),
     );
   }
 

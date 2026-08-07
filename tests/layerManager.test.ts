@@ -1223,12 +1223,16 @@ describe('LayerManager extensionless URL sniffing', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    await manager.addData('https://api.example.com/items', { id: 'forced', format: 'geoparquet' });
+    await manager.addData('https://api.example.com/items', {
+      id: 'forced',
+      format: 'geoparquet',
+      sourceCrs: ' EPSG:28992 ',
+    });
 
     expect(engine.ingest).toHaveBeenCalledWith(
       'https://api.example.com/items',
       't_forced',
-      expect.objectContaining({ format: 'geoparquet' }),
+      expect.objectContaining({ format: 'geoparquet', sourceCrs: 'EPSG:28992' }),
     );
   });
 });

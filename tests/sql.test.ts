@@ -300,6 +300,19 @@ describe('streaming ingest SQL', () => {
     );
   });
 
+  it('reprojects a streaming view from an explicit source CRS', () => {
+    expect(
+      createViewFromGeometrySql(
+        't1',
+        "read_parquet('f.parquet')",
+        { name: 'geometry', encoding: 'wkb' },
+        'EPSG:28992',
+      ),
+    ).toContain(
+      `ST_Transform(ST_GeomFromWKB("geometry"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
+    );
+  });
+
   it('recognizes bbox covering columns by common names', () => {
     const structType = 'STRUCT(xmin FLOAT, ymin FLOAT, xmax FLOAT, ymax FLOAT)';
     expect(isBboxCoveringColumn('bbox', structType)).toBe(true);

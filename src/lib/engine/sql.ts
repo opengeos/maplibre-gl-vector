@@ -310,8 +310,9 @@ export function createViewFromGeometrySql(
   tableName: string,
   reader: string,
   geometry: DetectedGeometryColumn,
+  sourceCrs: string | null = null,
 ): string {
-  return createRelationFromGeometrySql('VIEW', tableName, reader, geometry);
+  return createRelationFromGeometrySql('VIEW', tableName, reader, geometry, sourceCrs);
 }
 
 /**

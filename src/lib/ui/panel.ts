@@ -235,6 +235,15 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   streamRow.appendChild(streamInput);
   streamRow.appendChild(streamText);
 
+  // --- Optional source CRS override ---------------------------------------
+  // Some producers write projected coordinates but omit GeoParquet's `crs`
+  // metadata. Let the user state what those coordinates mean rather than
+  // sending impossible latitude values to MapLibre.
+  const sourceCrsInput = el('input', 'vector-control-input') as HTMLInputElement;
+  sourceCrsInput.type = 'text';
+  sourceCrsInput.placeholder = 'Source CRS override (e.g. EPSG:28992)';
+  sourceCrsInput.setAttribute('aria-label', 'Source CRS override');
+
   // --- Status line ---------------------------------------------------------
   const status = el('div', 'vector-control-status');
   status.style.display = 'none';
@@ -325,7 +334,11 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   function loadOptions(): VectorLayerOptions {
     // Explicit 'table' when unchecked, so the toggle wins over a
     // control-level defaultIngestMode of 'stream'.
-    return { ingestMode: streamInput.checked ? 'stream' : 'table' };
+    const sourceCrs = sourceCrsInput.value.trim();
+    return {
+      ingestMode: streamInput.checked ? 'stream' : 'table',
+      ...(sourceCrs ? { sourceCrs } : {}),
+    };
   }
 
   function sampleLoadOptions(sample: VectorSampleDataset): VectorLayerOptions {
@@ -424,6 +437,7 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   container.appendChild(urlRow);
   if (samples.length > 0) container.appendChild(sampleRow);
   container.appendChild(streamRow);
+  container.appendChild(sourceCrsInput);
   container.appendChild(status);
   container.appendChild(el('div', 'vector-control-divider'));
   container.appendChild(listTitle);

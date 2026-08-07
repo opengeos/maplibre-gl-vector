@@ -90,6 +90,29 @@ describe('renderPanelUI URL input', () => {
     expect(host.addData).not.toHaveBeenCalled();
     dispose();
   });
+
+  it('passes a trimmed source CRS override to URL loads', () => {
+    const container = document.createElement('div');
+    const host = createFakeHost();
+    host.addData = vi.fn(async () => ({}) as never);
+    const dispose = renderPanelUI({ container, control: host });
+
+    const urlInput = container.querySelector<HTMLInputElement>('input[type=url]')!;
+    const crsInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Source CRS override"]',
+    )!;
+    urlInput.value = 'https://example.com/eindhoven.parquet';
+    crsInput.value = '  EPSG:28992  ';
+    Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Load')!
+      .click();
+
+    expect(host.addData).toHaveBeenCalledExactlyOnceWith(
+      'https://example.com/eindhoven.parquet',
+      { ingestMode: 'table', sourceCrs: 'EPSG:28992' },
+    );
+    dispose();
+  });
 });
 
 describe('renderPanelUI sample data', () => {

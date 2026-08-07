@@ -141,6 +141,15 @@ await control.addData("https://example.com/buildings.parquet", {
 
 (or check **"Stream GeoParquet (no copy)"** in the panel before loading)
 
+If a producer omitted or misreported the source coordinate system, enter a
+**Source CRS override** in the panel before loading, or pass it explicitly:
+
+```typescript
+await control.addData(file, { sourceCrs: "EPSG:28992" });
+```
+
+The geometry is reprojected to WGS84 during either table or streaming ingest.
+
 In streaming mode the file is wrapped in a view and queried directly - nothing is copied into the database. Remote files are read with **HTTP range requests**, and when the file has a GeoParquet 1.1 bbox covering column (named `bbox` or anything ending in `_bbox`, e.g. `geometry_bbox`), the per-tile filter is pushed into parquet row-group statistics so only the row groups intersecting each tile are downloaded. The layer summary (count/extent) also comes from the bbox stats instead of a geometry scan.
 
 Trade-offs: each tile re-reads and reprojects matching rows (slower than the indexed table), and files without a bbox covering column or spatial ordering fall back to scanning per tile. Streaming applies to GeoParquet only; other formats ignore the option and materialize.
@@ -330,6 +339,7 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 | `style` | `Partial<VectorLayerStyle>` | defaults | Initial style overrides |
 | `sourceLayer` | `string` | - | Load only this layer from a multi-layer container (skips the picker) |
 | `sourceLayers` | `string[]` | - | Load this subset of a multi-layer container's layers, one vector layer each (skips the picker) |
+| `sourceCrs` | `string` | embedded CRS | Override the source coordinate system, for example `EPSG:28992`, and reproject to WGS84 during ingest |
 | `format` | `VectorFormat` | detected | Explicit format override |
 | `beforeId` | `string` | control option | Map layer id this layer is inserted before |
 | `picker` | `boolean` | control option | Attribute popup on feature click |
