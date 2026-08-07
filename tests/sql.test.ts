@@ -216,6 +216,26 @@ describe('CSV table creation', () => {
     const sql = createTableFromLonLatSql('t1', "read_csv('f.csv')", 'lon', 'lat');
     expect(sql).toContain('ST_Point("lon", "lat") AS geom');
   });
+
+  it('reprojects WKT geometry from an explicit source CRS', () => {
+    const sql = createTableFromWktSql('t1', "read_csv('f.csv')", 'wkt', 'EPSG:28992');
+    expect(sql).toContain(
+      `ST_Transform(ST_GeomFromText("wkt"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
+    );
+  });
+
+  it('reprojects coordinate columns from an explicit source CRS', () => {
+    const sql = createTableFromLonLatSql(
+      't1',
+      "read_csv('f.csv')",
+      'x',
+      'y',
+      'EPSG:28992',
+    );
+    expect(sql).toContain(
+      `ST_Transform(ST_Point("x", "y"), 'EPSG:28992', 'EPSG:4326', always_xy := true) AS geom`,
+    );
+  });
 });
 
 describe('summaryQuery', () => {

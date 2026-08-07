@@ -712,11 +712,12 @@ export class DuckDBEngine implements IEngine {
     bytes: Uint8Array,
     options: IngestOptions,
   ): Promise<void> {
-    const { featureCollection, sourceCrs } = await readGeoPackage(
+    const { featureCollection, sourceCrs: embeddedSourceCrs } = await readGeoPackage(
       bytes,
       options.sourceLayer,
       this._sqlJsBaseUrl,
     );
+    const sourceCrs = options.sourceCrs?.trim() || embeddedSourceCrs;
     // ST_Read of an empty GeoJSON exposes no geometry column, so the EXCLUDE
     // below would fail; create an empty table with just `geom` instead.
     if (featureCollection.features.length === 0) {
@@ -880,7 +881,7 @@ export class DuckDBEngine implements IEngine {
       const wktName = WKT_COLUMN_NAMES.map((n) => lower.get(n)).find(Boolean);
       if (wktName) {
         await this._loaded.conn.query(
-          createTableFromWktSql(tableName, reader, wktName),
+          createTableFromWktSql(tableName, reader, wktName, options.sourceCrs?.trim() || null),
         );
         return;
       }
@@ -889,7 +890,13 @@ export class DuckDBEngine implements IEngine {
         const latName = lower.get(lat);
         if (lonName && latName) {
           await this._loaded.conn.query(
-            createTableFromLonLatSql(tableName, reader, lonName, latName),
+            createTableFromLonLatSql(
+              tableName,
+              reader,
+              lonName,
+              latName,
+              options.sourceCrs?.trim() || null,
+            ),
           );
           return;
         }
@@ -933,10 +940,12 @@ export class DuckDBEngine implements IEngine {
     const result = await this._loaded.conn.query(`SELECT * FROM ${wkbReader}`);
     const rows = result.toArray().map((row) => row as Record<string, unknown>);
     const featureCollection = wkbRowsToFeatureCollection(rows, wkbColumn.name);
-    const sourceCrs = await this._readSourceCrs(
-      gdalPath(options.format, path),
-      await this._prjWkt(options, path),
-    );
+    const sourceCrs =
+      options.sourceCrs?.trim() ||
+      (await this._readSourceCrs(
+        gdalPath(options.format, path),
+        await this._prjWkt(options, path),
+      ));
 
     const geojsonName = `${tableName}.surface.geojson`;
     await this._loaded.db.registerFileBuffer(

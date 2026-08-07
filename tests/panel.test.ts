@@ -304,11 +304,13 @@ describe('renderPanelUI sample data', () => {
     });
 
     pickSample(container, 0);
+    container.querySelector<HTMLInputElement>('input[aria-label="Source CRS override"]')!.value =
+      'EPSG:28992';
     loadButton(container).click();
 
     expect(host.addData).toHaveBeenCalledExactlyOnceWith(
       'https://example.com/countries.parquet',
-      { ingestMode: 'stream' },
+      { ingestMode: 'stream', sourceCrs: 'EPSG:28992' },
     );
     dispose();
   });

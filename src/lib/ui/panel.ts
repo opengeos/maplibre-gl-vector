@@ -342,9 +342,10 @@ export function renderPanelUI(options: PanelUIOptions): () => void {
   }
 
   function sampleLoadOptions(sample: VectorSampleDataset): VectorLayerOptions {
-    const sampleOptions: VectorLayerOptions = sample.ingestMode
-      ? { ingestMode: sample.ingestMode }
-      : loadOptions();
+    const sampleOptions: VectorLayerOptions = {
+      ...loadOptions(),
+      ...(sample.ingestMode ? { ingestMode: sample.ingestMode } : {}),
+    };
     if (sample.name) sampleOptions.name = sample.name;
     if (sample.renderMode) sampleOptions.renderMode = sample.renderMode;
     return sampleOptions;
