@@ -343,7 +343,12 @@ export function setLayersVisibility(
   visible: boolean,
 ): void {
   for (const id of layerIds) {
-    map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    // A structural point-renderer rebuild removes the previous native layers
+    // before its async icon preparation completes. Visibility can be
+    // reconciled during that handoff, so ignore ids that have already gone.
+    if (map.getLayer(id)) {
+      map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    }
   }
 }
 
