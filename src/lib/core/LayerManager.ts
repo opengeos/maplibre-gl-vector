@@ -490,10 +490,15 @@ export class LayerManager {
    */
   setLayerVisibility(id: string, visible: boolean): void {
     const record = this._records.get(id);
-    if (!record || record.info.visible === visible) return;
+    if (!record) return;
+    // Structural point-style changes replace the native MapLibre layers. The
+    // cached flag can already match the requested value while a newly rebuilt
+    // heatmap/circle layer has defaulted back to visible, so always reconcile
+    // the current layer ids instead of treating an equal flag as a no-op.
     setLayersVisibility(this._map, record.info.layerIds, visible);
+    const changed = record.info.visible !== visible;
     record.info.visible = visible;
-    this._emit('layerupdated', { layer: { ...record.info } });
+    if (changed) this._emit('layerupdated', { layer: { ...record.info } });
   }
 
   /**
