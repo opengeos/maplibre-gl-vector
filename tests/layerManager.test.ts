@@ -861,10 +861,35 @@ describe('LayerManager layer operations', () => {
     expect(manager.getLayer('poly')?.visible).toBe(false);
     expect(emit).toHaveBeenCalledWith('layerupdated', expect.anything());
 
-    // No-op when unchanged
+    // Reconcile the native layer even when the cached flag is unchanged. A
+    // structural renderer rebuild may have replaced it with a visible layer.
     map.setLayoutProperty.mockClear();
     manager.setLayerVisibility('poly', false);
-    expect(map.setLayoutProperty).not.toHaveBeenCalled();
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('poly-fill', 'visibility', 'none');
+  });
+
+  it('toggles visibility after switching a point layer to a heatmap', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POINT_FC, { id: 'pts' });
+
+    manager.setLayerStyle('pts', { pointMode: 'heatmap' });
+    await vi.waitFor(() => expect(manager.getLayer('pts')?.layerIds).toEqual(['pts-heatmap']));
+
+    map.setLayoutProperty.mockClear();
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-heatmap', 'visibility', 'none');
+
+    // Simulate the replacement heatmap drifting back to MapLibre's default
+    // visibility while the control still records the layer as hidden.
+    map.setLayoutProperty.mockClear();
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-heatmap', 'visibility', 'none');
+
+    manager.setLayerStyle('pts', { pointMode: 'circle' });
+    await vi.waitFor(() => expect(manager.getLayer('pts')?.layerIds).toEqual(['pts-circle']));
+    map.setLayoutProperty.mockClear();
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-circle', 'visibility', 'none');
   });
 
   it('applies style patches', async () => {
