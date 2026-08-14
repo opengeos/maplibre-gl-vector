@@ -1,5 +1,5 @@
-import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
-import type { FeatureCollection } from 'geojson';
+import type { Map as MapLibreMap, MapLayerMouseEvent } from "maplibre-gl";
+import type { FeatureCollection } from "geojson";
 import type {
   RenderMode,
   VectorControlEvent,
@@ -9,15 +9,15 @@ import type {
   VectorLayerOptions,
   VectorLayerStyle,
   VectorLayerSelector,
-} from './types';
-import { VectorLayerSelectionCancelledError } from './errors';
-import { openLayerPicker, type LayerPickerHandle } from '../ui/layerPicker';
-import type { EngineProvider } from '../engine/types';
-import type { VectorSourceDescriptor } from './types';
-import { detectSource } from '../formats/detect';
-import { sniffRemoteGeoJSON } from '../formats/geojsonSniff';
-import { enhanceKmzGeoJSON, prepareKmzIcons } from '../formats/kmzMetadata';
-import { decideRenderMode } from '../render/renderMode';
+} from "./types";
+import { VectorLayerSelectionCancelledError } from "./errors";
+import { openLayerPicker, type LayerPickerHandle } from "../ui/layerPicker";
+import type { EngineProvider } from "../engine/types";
+import type { VectorSourceDescriptor } from "./types";
+import { detectSource } from "../formats/detect";
+import { sniffRemoteGeoJSON } from "../formats/geojsonSniff";
+import { enhanceKmzGeoJSON, prepareKmzIcons } from "../formats/kmzMetadata";
+import { decideRenderMode } from "../render/renderMode";
 import {
   DEFAULT_LABEL_SIZE,
   DEFAULT_STYLE,
@@ -28,7 +28,7 @@ import {
   labelTextField,
   mapLayerId,
   pointModeOf,
-} from '../render/styleBuilder';
+} from "../render/styleBuilder";
 import {
   addGeoJSONSource,
   addGeometryLayers,
@@ -38,18 +38,22 @@ import {
   removeLayersAndSource,
   setLayersVisibility,
   sourceIdFor,
-} from '../render/mapSources';
-import { registerTileProvider, tileUrlFor, unregisterTileProvider } from '../tiles/protocol';
+} from "../render/mapSources";
+import {
+  registerTileProvider,
+  tileUrlFor,
+  unregisterTileProvider,
+} from "../tiles/protocol";
 import {
   collectFieldNames,
   crsFromGeoJSON,
   summarizeFeatureCollection,
   toFeatureCollection,
-} from '../utils/geometry';
-import { fitMapToBbox } from '../utils/fit';
-import { generateId } from '../utils/helpers';
-import { getMaplibre } from '../utils/maplibre';
-import { assertRemoteFileSupported } from '../utils/remote';
+} from "../utils/geometry";
+import { fitMapToBbox } from "../utils/fit";
+import { generateId } from "../utils/helpers";
+import { getMaplibre } from "../utils/maplibre";
+import { assertRemoteFileSupported } from "../utils/remote";
 
 /**
  * Emits a control event with optional layer/error context.
@@ -111,7 +115,7 @@ const DEFAULT_MAX_TILE_ZOOM = 16;
  * @returns A sanitized table name
  */
 export function tableNameFor(layerId: string): string {
-  return `t_${layerId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+  return `t_${layerId}`.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
 /**
@@ -129,17 +133,17 @@ export function describeSource(
   source: VectorDataSource,
   sourcePath?: string,
 ): VectorSourceDescriptor {
-  if (typeof source === 'string') {
-    return { kind: 'url', url: source };
+  if (typeof source === "string") {
+    return { kind: "url", url: source };
   }
   const path = sourcePath?.trim() ? sourcePath : undefined;
-  if (typeof File !== 'undefined' && source instanceof File) {
-    return { kind: 'file', fileName: source.name, ...(path ? { path } : {}) };
+  if (typeof File !== "undefined" && source instanceof File) {
+    return { kind: "file", fileName: source.name, ...(path ? { path } : {}) };
   }
-  if (typeof Blob !== 'undefined' && source instanceof Blob) {
-    return { kind: 'file', ...(path ? { path } : {}) };
+  if (typeof Blob !== "undefined" && source instanceof Blob) {
+    return { kind: "file", ...(path ? { path } : {}) };
   }
-  return { kind: 'geojson' };
+  return { kind: "geojson" };
 }
 
 /**
@@ -160,14 +164,14 @@ export function isLooseShapefileMissingSiblings(
   source: VectorDataSource,
   options: VectorLayerOptions,
 ): boolean {
-  if (typeof File === 'undefined' || !(source instanceof File)) return false;
+  if (typeof File === "undefined" || !(source instanceof File)) return false;
   if (!/\.shp$/i.test(source.name)) return false;
   const extensions = new Set(
     (options.companionFiles ?? []).map((file) =>
-      file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase(),
+      file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase(),
     ),
   );
-  return !extensions.has('shx') || !extensions.has('dbf');
+  return !extensions.has("shx") || !extensions.has("dbf");
 }
 
 /**
@@ -231,18 +235,41 @@ export class LayerManager {
    */
   async restoreLayersAfterStyleChange(): Promise<void> {
     for (const record of this._records.values()) {
-      // Hosts may use a diffing style swap that preserves custom sources. Do
-      // not duplicate a presentation that survived the change.
-      if (this._map.getSource(record.info.sourceId)) continue;
+      const sourceExists = Boolean(this._map.getSource(record.info.sourceId));
+      const layersExist = record.info.layerIds.every((id) =>
+        Boolean(this._map.getLayer(id)),
+      );
+      if (sourceExists && layersExist) continue;
 
       this._detachPicker(record);
+      if (sourceExists) {
+        for (const id of record.info.layerIds) {
+          if (this._map.getLayer(id)) this._map.removeLayer(id);
+        }
+        record.info.layerIds = addGeometryLayers(this._map, {
+          layerId: record.info.id,
+          geometryType: record.info.geometryType,
+          style: record.info.style,
+          visible: record.info.visible,
+          opacity: record.info.opacity,
+          sourceLayer:
+            record.info.renderMode === "tiles" ? record.info.id : undefined,
+          beforeId:
+            record.info.beforeId && this._map.getLayer(record.info.beforeId)
+              ? record.info.beforeId
+              : undefined,
+        });
+        this._attachPicker(record);
+        this._emit("layerupdated", { layer: { ...record.info } });
+        continue;
+      }
       record.info.layerIds = [];
-      if (record.info.renderMode === 'tiles') {
+      if (record.info.renderMode === "tiles") {
         await this._presentTiles(record);
       } else {
         await this._presentGeoJSON(record);
       }
-      this._emit('layerupdated', { layer: { ...record.info } });
+      this._emit("layerupdated", { layer: { ...record.info } });
     }
   }
 
@@ -266,7 +293,9 @@ export class LayerManager {
         record.source,
         record.geojson,
         record.fileName ??
-          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+          (record.info.source.kind === "file"
+            ? record.info.source.fileName
+            : undefined),
       );
     }
     if (record.tableName) {
@@ -275,7 +304,9 @@ export class LayerManager {
         record.source,
         await engine.exportGeoJSON(record.tableName),
         record.fileName ??
-          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+          (record.info.source.kind === "file"
+            ? record.info.source.fileName
+            : undefined),
       );
     }
     // A line/polygon geojson layer keeps no cached copy (to avoid pinning the
@@ -283,7 +314,7 @@ export class LayerManager {
     const source = this._map.getSource(record.info.sourceId);
     const serialized = source?.serialize() as { data?: unknown } | undefined;
     const data = serialized?.data;
-    if (data && typeof data === 'object' && (data as FeatureCollection).type) {
+    if (data && typeof data === "object" && (data as FeatureCollection).type) {
       return data as FeatureCollection;
     }
     return null;
@@ -298,7 +329,10 @@ export class LayerManager {
    * @param property - An attribute field name.
    * @returns The values, or null when the layer or field is unavailable.
    */
-  async getLayerPropertyValues(id: string, property: string): Promise<unknown[] | null> {
+  async getLayerPropertyValues(
+    id: string,
+    property: string,
+  ): Promise<unknown[] | null> {
     const record = this._records.get(id);
     if (!record || !record.info.fields?.includes(property)) return null;
     if (record.tableName) {
@@ -324,41 +358,42 @@ export class LayerManager {
     options: VectorLayerOptions = {},
   ): Promise<VectorLayerInfo> {
     const detected = detectSource(source, options.format);
-    const id = options.id ?? generateId('vector');
+    const id = options.id ?? generateId("vector");
     if (this._records.has(id)) {
       throw new Error(`Layer "${id}" already exists`);
     }
     let remoteUrl =
-      typeof source === 'object' && source !== null
+      typeof source === "object" && source !== null
         ? this._materializedUrls.get(source as object)
         : undefined;
     if (
-      typeof source === 'string' &&
+      typeof source === "string" &&
       /^https?:\/\//i.test(source) &&
       this._options.urlLoader
     ) {
       remoteUrl = source;
-      this._emit('loading', { message: `Downloading ${detected.name}...` });
+      this._emit("loading", { message: `Downloading ${detected.name}...` });
       try {
         const loaded = await this._options.urlLoader(source);
         if (!loaded) {
           remoteUrl = undefined;
         } else {
           const isGeoJSON = /(?:^|[/+])(?:geo)?json(?:;|$)/i.test(loaded.type);
-          if (detected.format === 'unknown' && isGeoJSON) detected.format = 'geojson';
+          if (detected.format === "unknown" && isGeoJSON)
+            detected.format = "geojson";
           const fileName =
             isGeoJSON && !/\.[a-z0-9]+$/i.test(detected.name)
               ? `${detected.name}.geojson`
               : detected.name;
           source =
-            typeof File !== 'undefined' && loaded instanceof File
+            typeof File !== "undefined" && loaded instanceof File
               ? loaded
               : new File([loaded], fileName, { type: loaded.type });
           this._materializedUrls.set(source, remoteUrl);
         }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        this._emit('error', { error });
+        this._emit("error", { error });
         throw error;
       }
     }
@@ -368,13 +403,16 @@ export class LayerManager {
     // "GDALOpen() called on x.shp recursively" error. Surface an actionable
     // message instead, before any engine work, telling the user to select the
     // companion files too (or load the shapefile as a single `.zip`).
-    if (detected.format === 'shapefile' && isLooseShapefileMissingSiblings(source, options)) {
+    if (
+      detected.format === "shapefile" &&
+      isLooseShapefileMissingSiblings(source, options)
+    ) {
       const error = new Error(
-        'A shapefile is a set of files. Select the .shp together with its ' +
-          '.shx and .dbf files (and .prj, .cpg if present), or load the ' +
-          'shapefile as a single .zip archive.',
+        "A shapefile is a set of files. Select the .shp together with its " +
+          ".shx and .dbf files (and .prj, .cpg if present), or load the " +
+          "shapefile as a single .zip archive.",
       );
-      this._emit('error', { error });
+      this._emit("error", { error });
       throw error;
     }
 
@@ -384,37 +422,46 @@ export class LayerManager {
     // and its remote spatial-extension install -- a hang in sandboxed/offline
     // environments. Sniff the response first so a GeoJSON endpoint stays on the
     // pure-JS path; the fetched data is reused so it is not re-downloaded.
-    let prefetchedGeoJSON: { collection: FeatureCollection; byteSize?: number } | undefined;
+    let prefetchedGeoJSON:
+      | { collection: FeatureCollection; byteSize?: number }
+      | undefined;
     if (
-      detected.format === 'unknown' &&
+      detected.format === "unknown" &&
       !options.format &&
-      options.renderMode !== 'tiles' &&
-      typeof source === 'string' &&
-      !source.startsWith('data:')
+      options.renderMode !== "tiles" &&
+      typeof source === "string" &&
+      !source.startsWith("data:")
     ) {
       const sniffed = await sniffRemoteGeoJSON(source);
       if (sniffed) {
-        detected.format = 'geojson';
+        detected.format = "geojson";
         prefetchedGeoJSON = sniffed;
       }
     }
 
     // Reject remote files DuckDB-WASM cannot open BEFORE the engine
     // download starts, so the error is immediate.
-    const engineBound = !(detected.format === 'geojson' && options.renderMode !== 'tiles');
-    if (engineBound && typeof source === 'string') {
+    const engineBound = !(
+      detected.format === "geojson" && options.renderMode !== "tiles"
+    );
+    if (engineBound && typeof source === "string") {
       try {
         await assertRemoteFileSupported(source);
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        this._emit('error', { error });
+        this._emit("error", { error });
         throw error;
       }
     }
 
     // Multi-layer containers (GeoPackage tables, KML folders, ...)
     // expand into one vector layer per source layer.
-    const expanded = await this._maybeExpandLayers(source, options, detected, id);
+    const expanded = await this._maybeExpandLayers(
+      source,
+      options,
+      detected,
+      id,
+    );
     if (expanded) return expanded;
 
     const name = options.name ?? detected.name;
@@ -426,15 +473,16 @@ export class LayerManager {
         id,
         name,
         source: remoteUrl
-          ? { kind: 'url', url: remoteUrl }
+          ? { kind: "url", url: remoteUrl }
           : describeSource(source, options.sourcePath),
         format: detected.format,
-        renderMode: 'geojson',
-        geometryType: 'unknown',
+        renderMode: "geojson",
+        geometryType: "unknown",
         visible,
         opacity: clampOpacity(options.opacity ?? 1),
         picker: options.picker ?? this._options.enablePicker ?? true,
-        ingestMode: options.ingestMode ?? this._options.defaultIngestMode ?? 'table',
+        ingestMode:
+          options.ingestMode ?? this._options.defaultIngestMode ?? "table",
         sourceLayer: options.sourceLayer,
         sourceCrs: options.sourceCrs?.trim() || undefined,
         beforeId: options.beforeId ?? this._options.beforeId,
@@ -445,21 +493,24 @@ export class LayerManager {
       source,
       remoteUrl,
       sourceLayer: options.sourceLayer,
-      fileName: typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+      fileName:
+        typeof File !== "undefined" && source instanceof File
+          ? source.name
+          : undefined,
       companionFiles: options.companionFiles,
     };
 
-    this._emit('loading', { message: `Loading ${name}...` });
+    this._emit("loading", { message: `Loading ${name}...` });
 
     try {
-      if (detected.format === 'geojson' && options.renderMode !== 'tiles') {
+      if (detected.format === "geojson" && options.renderMode !== "tiles") {
         await this._addGeoJSON(record, options, prefetchedGeoJSON);
       } else {
         await this._addViaEngine(record, options);
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this._emit('error', { error });
+      this._emit("error", { error });
       throw error;
     }
 
@@ -467,7 +518,7 @@ export class LayerManager {
     if ((options.fitBounds ?? true) && record.info.bbox) {
       this._fitBounds(record.info.bbox);
     }
-    this._emit('layeradded', { layer: { ...record.info } });
+    this._emit("layeradded", { layer: { ...record.info } });
     return { ...record.info };
   }
 
@@ -481,7 +532,11 @@ export class LayerManager {
     if (!record) return;
 
     this._detachPicker(record);
-    removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+    removeLayersAndSource(
+      this._map,
+      record.info.layerIds,
+      record.info.sourceId,
+    );
     if (record.providerKey) unregisterTileProvider(record.providerKey);
     if (record.tableName) {
       const tableName = record.tableName;
@@ -492,7 +547,7 @@ export class LayerManager {
         });
     }
     this._records.delete(id);
-    this._emit('layerremoved', { layer: { ...record.info } });
+    this._emit("layerremoved", { layer: { ...record.info } });
   }
 
   /**
@@ -520,7 +575,7 @@ export class LayerManager {
     setLayersVisibility(this._map, record.info.layerIds, visible);
     const changed = record.info.visible !== visible;
     record.info.visible = visible;
-    if (changed) this._emit('layerupdated', { layer: { ...record.info } });
+    if (changed) this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -563,7 +618,7 @@ export class LayerManager {
       applyStyle(this._map, record.info, patch, record.info.opacity);
       this._applyLabelChange(record, prev, next, patch);
     }
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -580,7 +635,7 @@ export class LayerManager {
   ): void {
     const had = hasLabels(prev);
     const has = hasLabels(next);
-    const labelId = mapLayerId(record.info.id, 'label');
+    const labelId = mapLayerId(record.info.id, "label");
 
     if (has && (!had || !this._map.getLayer(labelId))) {
       this._addLabelLayer(record);
@@ -592,7 +647,9 @@ export class LayerManager {
     if (!has) {
       if (had && this._map.getLayer(labelId)) {
         this._map.removeLayer(labelId);
-        record.info.layerIds = record.info.layerIds.filter((id) => id !== labelId);
+        record.info.layerIds = record.info.layerIds.filter(
+          (id) => id !== labelId,
+        );
         // Drop the now-stale picker handler for the removed label layer.
         this._refreshPicker(record);
       }
@@ -602,22 +659,26 @@ export class LayerManager {
     // Both before and after have labels: apply the layout-side changes (paint
     // changes already went through applyStyle).
     if (patch.labelField !== undefined) {
-      this._map.setLayoutProperty(labelId, 'text-field', labelTextField(next));
+      this._map.setLayoutProperty(labelId, "text-field", labelTextField(next));
     }
     if (patch.labelSize !== undefined) {
-      this._map.setLayoutProperty(labelId, 'text-size', next.labelSize ?? DEFAULT_LABEL_SIZE);
+      this._map.setLayoutProperty(
+        labelId,
+        "text-size",
+        next.labelSize ?? DEFAULT_LABEL_SIZE,
+      );
     }
     if (patch.labelPlacement !== undefined) {
       this._map.setLayoutProperty(
         labelId,
-        'symbol-placement',
-        next.labelPlacement === 'line' ? 'line' : 'point',
+        "symbol-placement",
+        next.labelPlacement === "line" ? "line" : "point",
       );
     }
     if (patch.labelAllowOverlap !== undefined) {
       const allow = next.labelAllowOverlap ?? false;
-      this._map.setLayoutProperty(labelId, 'text-allow-overlap', allow);
-      this._map.setLayoutProperty(labelId, 'text-ignore-placement', allow);
+      this._map.setLayoutProperty(labelId, "text-allow-overlap", allow);
+      this._map.setLayoutProperty(labelId, "text-ignore-placement", allow);
     }
   }
 
@@ -626,17 +687,19 @@ export class LayerManager {
    * the source-layer for tile-rendered layers.
    */
   private _addLabelLayer(record: LayerRecord): void {
-    const labelId = mapLayerId(record.info.id, 'label');
+    const labelId = mapLayerId(record.info.id, "label");
     if (this._map.getLayer(labelId)) return;
     addLabelLayer(this._map, {
       layerId: record.info.id,
       style: record.info.style,
       visible: record.info.visible,
       opacity: record.info.opacity,
-      sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+      sourceLayer:
+        record.info.renderMode === "tiles" ? record.info.id : undefined,
       beforeId: record.info.beforeId,
     });
-    if (!record.info.layerIds.includes(labelId)) record.info.layerIds.push(labelId);
+    if (!record.info.layerIds.includes(labelId))
+      record.info.layerIds.push(labelId);
   }
 
   /**
@@ -659,12 +722,15 @@ export class LayerManager {
     prev: VectorLayerStyle,
     next: VectorLayerStyle,
   ): boolean {
-    if (record.info.renderMode !== 'geojson' || record.info.geometryType !== 'point') {
+    if (
+      record.info.renderMode !== "geojson" ||
+      record.info.geometryType !== "point"
+    ) {
       return false;
     }
     if (pointModeOf(prev) !== pointModeOf(next)) return true;
     return (
-      pointModeOf(next) === 'cluster' &&
+      pointModeOf(next) === "cluster" &&
       ((prev.clusterRadius ?? 50) !== (next.clusterRadius ?? 50) ||
         (prev.clusterMaxZoom ?? 14) !== (next.clusterMaxZoom ?? 14))
     );
@@ -683,10 +749,16 @@ export class LayerManager {
     next: VectorLayerStyle,
   ): boolean {
     const geometry = record.info.geometryType;
-    if (geometry !== 'polygon' && geometry !== 'mixed' && geometry !== 'unknown') {
+    if (
+      geometry !== "polygon" &&
+      geometry !== "mixed" &&
+      geometry !== "unknown"
+    ) {
       return false;
     }
-    return (prev.extrusionEnabled === true) !== (next.extrusionEnabled === true);
+    return (
+      (prev.extrusionEnabled === true) !== (next.extrusionEnabled === true)
+    );
   }
 
   /**
@@ -705,7 +777,8 @@ export class LayerManager {
       style: record.info.style,
       visible: record.info.visible,
       opacity: record.info.opacity,
-      sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+      sourceLayer:
+        record.info.renderMode === "tiles" ? record.info.id : undefined,
       beforeId: record.info.beforeId,
     });
     this._attachPicker(record);
@@ -758,7 +831,7 @@ export class LayerManager {
     if (record.info.opacity === clamped) return;
     record.info.opacity = clamped;
     applyOpacity(this._map, record.info, record.info.style, clamped);
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -773,7 +846,7 @@ export class LayerManager {
     record.info.picker = enabled;
     this._detachPicker(record);
     if (enabled) this._attachPicker(record);
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -786,13 +859,14 @@ export class LayerManager {
   setLayerBeforeId(id: string, beforeId?: string): void {
     const record = this._records.get(id);
     if (!record) return;
-    const target = beforeId && this._map.getLayer(beforeId) ? beforeId : undefined;
+    const target =
+      beforeId && this._map.getLayer(beforeId) ? beforeId : undefined;
     // Moving in creation order keeps the group's internal stacking.
     for (const layerId of record.info.layerIds) {
       this._map.moveLayer(layerId, target);
     }
     record.info.beforeId = target;
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -814,26 +888,32 @@ export class LayerManager {
     });
     if (target === record.info.renderMode) return;
 
-    this._emit('loading', { message: `Switching ${record.info.name} to ${target}...` });
+    this._emit("loading", {
+      message: `Switching ${record.info.name} to ${target}...`,
+    });
 
     try {
       this._detachPicker(record);
-      removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+      removeLayersAndSource(
+        this._map,
+        record.info.layerIds,
+        record.info.sourceId,
+      );
       if (record.providerKey) unregisterTileProvider(record.providerKey);
       record.info.layerIds = [];
 
-      if (target === 'tiles') {
+      if (target === "tiles") {
         await this._presentTiles(record);
       } else {
         await this._presentGeoJSON(record);
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this._emit('error', { error });
+      this._emit("error", { error });
       throw error;
     }
 
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
   }
 
   /**
@@ -849,18 +929,21 @@ export class LayerManager {
     const record = this._records.get(id);
     if (!record) return undefined;
     // Only URL sources can change between loads; files/objects are static.
-    if (typeof record.source !== 'string' && !record.remoteUrl) return { ...record.info };
+    if (typeof record.source !== "string" && !record.remoteUrl)
+      return { ...record.info };
 
-    this._emit('loading', { message: `Refreshing ${record.info.name}...` });
+    this._emit("loading", { message: `Refreshing ${record.info.name}...` });
 
     try {
       if (record.remoteUrl && this._options.urlLoader) {
         const loaded = await this._options.urlLoader(record.remoteUrl);
         if (loaded) {
           record.source =
-            typeof File !== 'undefined' && loaded instanceof File
+            typeof File !== "undefined" && loaded instanceof File
               ? loaded
-              : new File([loaded], this._defaultFileName(record), { type: loaded.type });
+              : new File([loaded], this._defaultFileName(record), {
+                  type: loaded.type,
+                });
           this._materializedUrls.set(record.source as object, record.remoteUrl);
         } else {
           record.source = record.remoteUrl;
@@ -869,7 +952,11 @@ export class LayerManager {
       }
       // Tear down the current presentation (mirrors setRenderMode).
       this._detachPicker(record);
-      removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+      removeLayersAndSource(
+        this._map,
+        record.info.layerIds,
+        record.info.sourceId,
+      );
       if (record.providerKey) {
         unregisterTileProvider(record.providerKey);
         record.providerKey = undefined;
@@ -894,18 +981,21 @@ export class LayerManager {
         sourceLayer: record.sourceLayer,
         sourceCrs: record.info.sourceCrs,
       };
-      if (record.info.format === 'geojson' && record.info.renderMode !== 'tiles') {
+      if (
+        record.info.format === "geojson" &&
+        record.info.renderMode !== "tiles"
+      ) {
         await this._addGeoJSON(record, reloadOptions);
       } else {
         await this._addViaEngine(record, reloadOptions);
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      this._emit('error', { error });
+      this._emit("error", { error });
       throw error;
     }
 
-    this._emit('layerupdated', { layer: { ...record.info } });
+    this._emit("layerupdated", { layer: { ...record.info } });
     return { ...record.info };
   }
 
@@ -916,7 +1006,11 @@ export class LayerManager {
   dispose(): void {
     for (const record of this._records.values()) {
       this._detachPicker(record);
-      removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+      removeLayersAndSource(
+        this._map,
+        record.info.layerIds,
+        record.info.sourceId,
+      );
       if (record.providerKey) unregisterTileProvider(record.providerKey);
     }
     this._records.clear();
@@ -950,20 +1044,23 @@ export class LayerManager {
   private async _maybeExpandLayers(
     source: VectorDataSource,
     options: VectorLayerOptions,
-    detected: { format: VectorLayerInfo['format']; name: string },
+    detected: { format: VectorLayerInfo["format"]; name: string },
     id: string,
   ): Promise<VectorLayerInfo | null> {
     // Single-layer by construction: native readers and the pure-JS
     // GeoJSON path. Explicit sourceLayer means the caller chose.
-    const singleLayerFormats = ['geojson', 'geoparquet', 'csv'];
-    if (options.sourceLayer || singleLayerFormats.includes(detected.format)) return null;
+    const singleLayerFormats = ["geojson", "geoparquet", "csv"];
+    if (options.sourceLayer || singleLayerFormats.includes(detected.format))
+      return null;
 
     const engine = await this._getEngine();
     const engineSource = await this._engineSource(source);
     const layerNames = await engine.listLayers(engineSource, tableNameFor(id), {
       format: detected.format,
       fileName:
-        typeof File !== 'undefined' && source instanceof File ? source.name : undefined,
+        typeof File !== "undefined" && source instanceof File
+          ? source.name
+          : undefined,
       // A loose shapefile must register its sidecars on this first probe too:
       // the engine caches the registration by source, so a companion-less
       // probe would leave the cached `.shp` unreadable for the later ingest.
@@ -972,9 +1069,14 @@ export class LayerManager {
     if (layerNames.length <= 1) return null;
 
     const sourceName = options.name ?? detected.name;
-    const selected = await this._selectContainerLayers(layerNames, options, detected, sourceName);
+    const selected = await this._selectContainerLayers(
+      layerNames,
+      options,
+      detected,
+      sourceName,
+    );
 
-    this._emit('loading', {
+    this._emit("loading", {
       message:
         selected.length === 1
           ? `Loading 1 layer from ${sourceName}...`
@@ -987,7 +1089,7 @@ export class LayerManager {
     const layerOptions: VectorLayerOptions = { ...options };
     delete layerOptions.sourceLayers;
     for (const layerName of selected) {
-      const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const subId = `${id}-${layerName.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
       infos.push(
         await this.addData(source, {
           ...layerOptions,
@@ -1032,7 +1134,7 @@ export class LayerManager {
   private async _selectContainerLayers(
     layerNames: string[],
     options: VectorLayerOptions,
-    detected: { format: VectorLayerInfo['format'] },
+    detected: { format: VectorLayerInfo["format"] },
     sourceName: string,
   ): Promise<string[]> {
     const inContainerOrder = (names: readonly string[]): string[] => {
@@ -1044,8 +1146,8 @@ export class LayerManager {
       const requested = inContainerOrder(options.sourceLayers);
       if (requested.length === 0) {
         throw new Error(
-          `None of the requested layers (${options.sourceLayers.join(', ')}) exist in ` +
-            `${sourceName}. Available layers: ${layerNames.join(', ')}.`,
+          `None of the requested layers (${options.sourceLayers.join(", ")}) exist in ` +
+            `${sourceName}. Available layers: ${layerNames.join(", ")}.`,
         );
       }
       return requested;
@@ -1054,7 +1156,10 @@ export class LayerManager {
     const selector = this._layerSelector();
     if (!selector) return layerNames;
 
-    const chosen = await selector(layerNames, { sourceName, format: detected.format });
+    const chosen = await selector(layerNames, {
+      sourceName,
+      format: detected.format,
+    });
     // null/undefined means "no opinion": keep the load-everything default so a
     // host selector that only handles some formats can defer on the rest.
     if (chosen == null) return layerNames;
@@ -1081,7 +1186,11 @@ export class LayerManager {
       // No container to render into (a headless/mock map): fall back to
       // loading every layer rather than blocking on a modal nobody can see.
       if (!container) return null;
-      const picker = openLayerPicker({ container, layers, sourceName: context.sourceName });
+      const picker = openLayerPicker({
+        container,
+        layers,
+        sourceName: context.sourceName,
+      });
       this._openPickers.add(picker);
       return picker.selection.finally(() => this._openPickers.delete(picker));
     };
@@ -1119,7 +1228,7 @@ export class LayerManager {
       threshold: this._options.autoThreshold,
     });
 
-    if (mode === 'tiles') {
+    if (mode === "tiles") {
       // The tile path re-reads the original source through the DuckDB engine,
       // which reprojects to WGS84 from the source metadata as part of ingest, so
       // a projected collection is handled there without the in-memory reproject
@@ -1136,7 +1245,9 @@ export class LayerManager {
     // that follows, and the panel is left stuck loading.
     const sourceCrs = crsFromGeoJSON(collection);
     if (sourceCrs) {
-      this._emit('loading', { message: `Reprojecting ${record.info.name} to WGS84...` });
+      this._emit("loading", {
+        message: `Reprojecting ${record.info.name} to WGS84...`,
+      });
       const engine = await this._getEngine();
       collection = await engine.reprojectGeoJSON(collection, sourceCrs);
       const reprojectedSummary = summarizeFeatureCollection(collection);
@@ -1145,10 +1256,10 @@ export class LayerManager {
       record.info.bbox = reprojectedSummary.bbox;
     }
 
-    record.info.renderMode = 'geojson';
+    record.info.renderMode = "geojson";
     // Only point layers use the cached collection (for a pointMode rebuild), so
     // don't pin a full copy of polygon/line data in the JS heap.
-    record.geojson = summary.geometryType === 'point' ? collection : undefined;
+    record.geojson = summary.geometryType === "point" ? collection : undefined;
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -1173,7 +1284,10 @@ export class LayerManager {
    * Loads a source through the DuckDB engine and presents it as GeoJSON
    * or dynamic tiles based on the resolved render mode.
    */
-  private async _addViaEngine(record: LayerRecord, options: VectorLayerOptions): Promise<void> {
+  private async _addViaEngine(
+    record: LayerRecord,
+    options: VectorLayerOptions,
+  ): Promise<void> {
     const summary = await this._ingest(record);
 
     record.info.featureCount = summary.featureCount;
@@ -1189,7 +1303,7 @@ export class LayerManager {
       threshold: this._options.autoThreshold,
     });
 
-    if (mode === 'tiles') {
+    if (mode === "tiles") {
       await this._presentTiles(record);
     } else {
       await this._presentGeoJSON(record);
@@ -1204,9 +1318,9 @@ export class LayerManager {
     const engine = await this._getEngine();
     const tableName = tableNameFor(record.info.id);
     const source = await this._engineSource(record.source);
-    this._emit('loading', {
+    this._emit("loading", {
       message:
-        record.info.ingestMode === 'stream'
+        record.info.ingestMode === "stream"
           ? `Opening ${record.info.name} (streaming, reading metadata)...`
           : `Reading ${record.info.name} into DuckDB...`,
     });
@@ -1222,7 +1336,7 @@ export class LayerManager {
     record.info.fields = summary.fields;
     // The engine falls back to a table for formats streaming
     // does not apply to.
-    record.info.ingestMode = summary.streamed ? 'stream' : 'table';
+    record.info.ingestMode = summary.streamed ? "stream" : "table";
     return summary;
   }
 
@@ -1237,11 +1351,13 @@ export class LayerManager {
       record.info.featureCount = summary.featureCount;
       record.info.bbox = summary.bbox ?? record.info.bbox;
       record.info.geometryType =
-        summary.geometryType !== 'unknown' ? summary.geometryType : record.info.geometryType;
+        summary.geometryType !== "unknown"
+          ? summary.geometryType
+          : record.info.geometryType;
     }
     const tableName = record.tableName!;
-    if (record.info.ingestMode !== 'stream') {
-      this._emit('loading', {
+    if (record.info.ingestMode !== "stream") {
+      this._emit("loading", {
         message: `Indexing ${record.info.name} for tiles (reprojecting + R-Tree)...`,
       });
     }
@@ -1256,7 +1372,7 @@ export class LayerManager {
       this._trackTileActivity(engine.getTile(tableName, id, z, x, y, signal)),
     );
 
-    record.info.renderMode = 'tiles';
+    record.info.renderMode = "tiles";
     // Tiles never rebuild from a cached collection; drop any copy from a prior
     // geojson render so it isn't pinned in the heap.
     record.geojson = undefined;
@@ -1286,26 +1402,32 @@ export class LayerManager {
     let collection: FeatureCollection;
     if (record.tableName) {
       const engine = await this._getEngine();
-      this._emit('loading', { message: `Converting ${record.info.name} to GeoJSON...` });
+      this._emit("loading", {
+        message: `Converting ${record.info.name} to GeoJSON...`,
+      });
       collection = await engine.exportGeoJSON(record.tableName);
       collection = await enhanceKmzGeoJSON(
         record.source,
         collection,
         record.fileName ??
-          (record.info.source.kind === 'file' ? record.info.source.fileName : undefined),
+          (record.info.source.kind === "file"
+            ? record.info.source.fileName
+            : undefined),
       );
     } else {
       collection = (await this._resolveGeoJSON(record.source)).collection;
     }
 
-    if (record.info.geometryType === 'unknown') {
-      record.info.geometryType = summarizeFeatureCollection(collection).geometryType;
+    if (record.info.geometryType === "unknown") {
+      record.info.geometryType =
+        summarizeFeatureCollection(collection).geometryType;
     }
     record.info.fields = collectFieldNames(collection);
 
-    record.info.renderMode = 'geojson';
+    record.info.renderMode = "geojson";
     // Only point layers use the cached collection (for a pointMode rebuild).
-    record.geojson = record.info.geometryType === 'point' ? collection : undefined;
+    record.geojson =
+      record.info.geometryType === "point" ? collection : undefined;
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -1332,21 +1454,33 @@ export class LayerManager {
   private async _resolveGeoJSON(
     source: VectorDataSource,
   ): Promise<{ collection: FeatureCollection; byteSize?: number }> {
-    if (typeof source === 'string') {
+    if (typeof source === "string") {
       const response = await fetch(source);
       if (!response.ok) {
-        throw new Error(`Failed to fetch ${source}: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `Failed to fetch ${source}: ${response.status} ${response.statusText}`,
+        );
       }
       const text = await response.text();
-      return { collection: toFeatureCollection(JSON.parse(text)), byteSize: text.length };
+      return {
+        collection: toFeatureCollection(JSON.parse(text)),
+        byteSize: text.length,
+      };
     }
 
-    if (typeof Blob !== 'undefined' && source instanceof Blob) {
+    if (typeof Blob !== "undefined" && source instanceof Blob) {
       const text = await source.text();
-      return { collection: toFeatureCollection(JSON.parse(text)), byteSize: source.size };
+      return {
+        collection: toFeatureCollection(JSON.parse(text)),
+        byteSize: source.size,
+      };
     }
 
-    return { collection: toFeatureCollection(source as Exclude<VectorDataSource, string | Blob>) };
+    return {
+      collection: toFeatureCollection(
+        source as Exclude<VectorDataSource, string | Blob>,
+      ),
+    };
   }
 
   /**
@@ -1354,15 +1488,17 @@ export class LayerManager {
    * (GeoJSON objects and data: URLs become Blobs - DuckDB/GDAL cannot
    * fetch data: URLs).
    */
-  private async _engineSource(source: VectorDataSource): Promise<string | File | Blob> {
-    if (typeof source === 'string') {
-      if (source.startsWith('data:')) {
+  private async _engineSource(
+    source: VectorDataSource,
+  ): Promise<string | File | Blob> {
+    if (typeof source === "string") {
+      if (source.startsWith("data:")) {
         return (await fetch(source)).blob();
       }
       return source;
     }
-    if (typeof Blob !== 'undefined' && source instanceof Blob) return source;
-    return new Blob([JSON.stringify(source)], { type: 'application/geo+json' });
+    if (typeof Blob !== "undefined" && source instanceof Blob) return source;
+    return new Blob([JSON.stringify(source)], { type: "application/geo+json" });
   }
 
   /**
@@ -1371,15 +1507,15 @@ export class LayerManager {
    */
   private _defaultFileName(record: LayerRecord): string {
     const extensions: Record<string, string> = {
-      geojson: 'geojson',
-      geoparquet: 'parquet',
-      geopackage: 'gpkg',
-      shapefile: 'zip',
-      flatgeobuf: 'fgb',
-      csv: 'csv',
+      geojson: "geojson",
+      geoparquet: "parquet",
+      geopackage: "gpkg",
+      shapefile: "zip",
+      flatgeobuf: "fgb",
+      csv: "csv",
     };
     const format = record.info.format;
-    const ext = extensions[format] ?? (format !== 'unknown' ? format : 'bin');
+    const ext = extensions[format] ?? (format !== "unknown" ? format : "bin");
     return `${tableNameFor(record.info.id)}.${ext}`;
   }
 
@@ -1397,14 +1533,14 @@ export class LayerManager {
         }
       };
       const enter = () => {
-        this._map.getCanvas().style.cursor = 'pointer';
+        this._map.getCanvas().style.cursor = "pointer";
       };
       const leave = () => {
-        this._map.getCanvas().style.cursor = '';
+        this._map.getCanvas().style.cursor = "";
       };
-      this._map.on('click', layerId, click);
-      this._map.on('mouseenter', layerId, enter);
-      this._map.on('mouseleave', layerId, leave);
+      this._map.on("click", layerId, click);
+      this._map.on("mouseenter", layerId, enter);
+      this._map.on("mouseleave", layerId, leave);
       return { layerId, click, enter, leave };
     });
   }
@@ -1414,9 +1550,9 @@ export class LayerManager {
    */
   private _detachPicker(record: LayerRecord): void {
     for (const handler of record.pickerHandlers ?? []) {
-      this._map.off('click', handler.layerId, handler.click);
-      this._map.off('mouseenter', handler.layerId, handler.enter);
-      this._map.off('mouseleave', handler.layerId, handler.leave);
+      this._map.off("click", handler.layerId, handler.click);
+      this._map.off("mouseenter", handler.layerId, handler.enter);
+      this._map.off("mouseleave", handler.layerId, handler.leave);
     }
     record.pickerHandlers = undefined;
     // Close a popup owned by this layer so stale attributes do not
@@ -1430,83 +1566,95 @@ export class LayerManager {
 
   /** Opens (or replaces) the attribute popup for a clicked feature. */
   private async _showPopup(
-    info: Pick<VectorLayerInfo, 'id' | 'name'>,
+    info: Pick<VectorLayerInfo, "id" | "name">,
     lngLat: { lng: number; lat: number },
     properties: Record<string, unknown>,
   ): Promise<void> {
-    const container = document.createElement('div');
-    container.className = 'vector-control-popup';
+    const container = document.createElement("div");
+    container.className = "vector-control-popup";
 
-    const title = document.createElement('div');
-    title.className = 'vector-control-popup-title';
+    const title = document.createElement("div");
+    title.className = "vector-control-popup-title";
     title.textContent = info.name;
     container.appendChild(title);
 
-    const entries = Object.entries(properties).filter(([key]) => !key.startsWith('__geolibre_'));
+    const entries = Object.entries(properties).filter(
+      ([key]) => !key.startsWith("__geolibre_"),
+    );
     if (entries.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'vector-control-popup-empty';
-      empty.textContent = 'No attributes';
+      const empty = document.createElement("div");
+      empty.className = "vector-control-popup-empty";
+      empty.textContent = "No attributes";
       container.appendChild(empty);
     } else {
-      const table = document.createElement('table');
-      table.className = 'vector-control-popup-table';
+      const table = document.createElement("table");
+      table.className = "vector-control-popup-table";
       for (const [key, value] of entries) {
         const row = table.insertRow();
         const keyCell = row.insertCell();
-        keyCell.className = 'vector-control-popup-key';
+        keyCell.className = "vector-control-popup-key";
         keyCell.textContent = key;
         const valueCell = row.insertCell();
         if (
-          key.toLowerCase() === 'description' &&
-          typeof value === 'string' &&
+          key.toLowerCase() === "description" &&
+          typeof value === "string" &&
           /<[^>]+>/.test(value)
         ) {
-          const parsed = new DOMParser().parseFromString(value, 'text/html');
+          const parsed = new DOMParser().parseFromString(value, "text/html");
           const allowed = new Set([
-            'a',
-            'b',
-            'br',
-            'div',
-            'em',
-            'i',
-            'p',
-            'span',
-            'strong',
-            'table',
-            'tbody',
-            'td',
-            'th',
-            'thead',
-            'tr',
+            "a",
+            "b",
+            "br",
+            "div",
+            "em",
+            "i",
+            "p",
+            "span",
+            "strong",
+            "table",
+            "tbody",
+            "td",
+            "th",
+            "thead",
+            "tr",
           ]);
           const copy = (node: Node, parent: Node): void => {
             if (node.nodeType === Node.TEXT_NODE) {
-              parent.appendChild(document.createTextNode(node.textContent ?? ''));
+              parent.appendChild(
+                document.createTextNode(node.textContent ?? ""),
+              );
               return;
             }
             if (!(node instanceof Element)) return;
             const tag = node.localName.toLowerCase();
-            if (tag === 'script' || tag === 'style' || tag === 'head' || tag === 'meta') return;
+            if (
+              tag === "script" ||
+              tag === "style" ||
+              tag === "head" ||
+              tag === "meta"
+            )
+              return;
             if (!allowed.has(tag)) {
               for (const childNode of node.childNodes) copy(childNode, parent);
               return;
             }
             const element = document.createElement(tag);
-            if (tag === 'a') {
-              const href = node.getAttribute('href')?.trim();
+            if (tag === "a") {
+              const href = node.getAttribute("href")?.trim();
               if (href && /^(https?:|mailto:)/i.test(href)) {
-                element.setAttribute('href', href);
-                element.setAttribute('target', '_blank');
-                element.setAttribute('rel', 'noopener noreferrer');
+                element.setAttribute("href", href);
+                element.setAttribute("target", "_blank");
+                element.setAttribute("rel", "noopener noreferrer");
               }
             }
             for (const childNode of node.childNodes) copy(childNode, element);
             parent.appendChild(element);
           };
-          for (const childNode of parsed.body.childNodes) copy(childNode, valueCell);
+          for (const childNode of parsed.body.childNodes)
+            copy(childNode, valueCell);
         } else {
-          valueCell.textContent = value === null || value === undefined ? '' : String(value);
+          valueCell.textContent =
+            value === null || value === undefined ? "" : String(value);
         }
       }
       container.appendChild(table);
@@ -1514,7 +1662,7 @@ export class LayerManager {
 
     const maplibre = await getMaplibre();
     this._popup?.remove();
-    const popup = new maplibre.Popup({ closeButton: true, maxWidth: '520px' });
+    const popup = new maplibre.Popup({ closeButton: true, maxWidth: "520px" });
     popup.setLngLat([lngLat.lng, lngLat.lat]);
     popup.setDOMContent(container);
     popup.addTo(this._map);
@@ -1534,17 +1682,21 @@ export class LayerManager {
       clearTimeout(this._tileStatusTimer);
       this._tileStatusTimer = undefined;
     }
-    this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+    this._emit("loading", {
+      message: `Generating tiles (${this._pendingTiles} pending)...`,
+    });
 
     const settle = () => {
       this._pendingTiles -= 1;
       if (this._pendingTiles === 0) {
         this._tileStatusTimer = setTimeout(() => {
           this._tileStatusTimer = undefined;
-          this._emit('loading', { message: '' });
+          this._emit("loading", { message: "" });
         }, 400);
       } else {
-        this._emit('loading', { message: `Generating tiles (${this._pendingTiles} pending)...` });
+        this._emit("loading", {
+          message: `Generating tiles (${this._pendingTiles} pending)...`,
+        });
       }
     };
 
