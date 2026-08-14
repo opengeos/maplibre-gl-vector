@@ -231,11 +231,31 @@ export class LayerManager {
    */
   async restoreLayersAfterStyleChange(): Promise<void> {
     for (const record of this._records.values()) {
-      // Hosts may use a diffing style swap that preserves custom sources. Do
-      // not duplicate a presentation that survived the change.
-      if (this._map.getSource(record.info.sourceId)) continue;
+      const sourceExists = Boolean(this._map.getSource(record.info.sourceId));
+      const layersExist = record.info.layerIds.every((id) => Boolean(this._map.getLayer(id)));
+      if (sourceExists && layersExist) continue;
 
       this._detachPicker(record);
+      if (sourceExists) {
+        for (const id of record.info.layerIds) {
+          if (this._map.getLayer(id)) this._map.removeLayer(id);
+        }
+        record.info.layerIds = addGeometryLayers(this._map, {
+          layerId: record.info.id,
+          geometryType: record.info.geometryType,
+          style: record.info.style,
+          visible: record.info.visible,
+          opacity: record.info.opacity,
+          sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+          beforeId:
+            record.info.beforeId && this._map.getLayer(record.info.beforeId)
+              ? record.info.beforeId
+              : undefined,
+        });
+        this._attachPicker(record);
+        this._emit('layerupdated', { layer: { ...record.info } });
+        continue;
+      }
       record.info.layerIds = [];
       if (record.info.renderMode === 'tiles') {
         await this._presentTiles(record);

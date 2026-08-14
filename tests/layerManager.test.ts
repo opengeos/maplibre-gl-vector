@@ -184,6 +184,20 @@ describe('LayerManager GeoJSON path', () => {
     );
   });
 
+  it('restores missing layers without duplicating a preserved source', async () => {
+    const { manager, map } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+
+    map.layers.clear();
+    map.addSource.mockClear();
+    map.addLayer.mockClear();
+
+    await manager.restoreLayersAfterStyleChange();
+
+    expect(map.addSource).not.toHaveBeenCalled();
+    expect(map.layers).toEqual(new Set(['poly-fill', 'poly-outline']));
+  });
+
   it('keeps the normal URL path when the host loader declines a source', async () => {
     const urlLoader = vi.fn().mockResolvedValue(null);
     const fetchMock = vi.fn().mockResolvedValue({
