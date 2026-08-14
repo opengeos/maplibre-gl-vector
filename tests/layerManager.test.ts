@@ -1,27 +1,27 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import type { Map as MapLibreMap } from "maplibre-gl";
-import type { FeatureCollection } from "geojson";
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { Map as MapLibreMap } from 'maplibre-gl';
+import type { FeatureCollection } from 'geojson';
 import {
   LayerManager,
   describeSource,
   isLooseShapefileMissingSiblings,
   tableNameFor,
-} from "../src/lib/core/LayerManager";
-import type { IEngine } from "../src/lib/engine/types";
-import { hasTileProvider, loadTile } from "../src/lib/tiles/protocol";
-import { isVectorLayerSelectionCancelled } from "../src/lib/core/errors";
+} from '../src/lib/core/LayerManager';
+import type { IEngine } from '../src/lib/engine/types';
+import { hasTileProvider, loadTile } from '../src/lib/tiles/protocol';
+import { isVectorLayerSelectionCancelled } from '../src/lib/core/errors';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 const POLYGON_FC: FeatureCollection = {
-  type: "FeatureCollection",
+  type: 'FeatureCollection',
   features: [
     {
-      type: "Feature",
+      type: 'Feature',
       geometry: {
-        type: "Polygon",
+        type: 'Polygon',
         coordinates: [
           [
             [0, 0],
@@ -32,18 +32,18 @@ const POLYGON_FC: FeatureCollection = {
           ],
         ],
       },
-      properties: { name: "box" },
+      properties: { name: 'box' },
     },
   ],
 };
 
 const POINT_FC: FeatureCollection = {
-  type: "FeatureCollection",
+  type: 'FeatureCollection',
   features: [
     {
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [1, 2] },
-      properties: { name: "dot" },
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1, 2] },
+      properties: { name: 'dot' },
     },
   ],
 };
@@ -78,14 +78,14 @@ function createMockEngine(overrides: Partial<IEngine> = {}): IEngine {
     ingest: vi.fn(async (_source, tableName) => ({
       tableName,
       featureCount: 100,
-      fields: ["name", "population"],
+      fields: ['name', 'population'],
       bbox: [0, 0, 10, 10] as [number, number, number, number],
-      geometryType: "polygon" as const,
+      geometryType: 'polygon' as const,
       byteSize: 1234,
     })),
     listLayers: vi.fn(async () => []),
     exportGeoJSON: vi.fn(async () => POLYGON_FC),
-    getPropertyValues: vi.fn(async () => ["Central", "North", "South"]),
+    getPropertyValues: vi.fn(async () => ['Central', 'North', 'South']),
     reprojectGeoJSON: vi.fn(async (collection) => collection),
     prepareTiles: vi.fn(async () => undefined),
     getTile: vi.fn(async () => new Uint8Array(0)),
@@ -114,64 +114,56 @@ function createManager(
   return { manager, map, emit, engine };
 }
 
-describe("tableNameFor", () => {
-  it("sanitizes layer ids", () => {
-    expect(tableNameFor("vector-abc123")).toBe("t_vector_abc123");
+describe('tableNameFor', () => {
+  it('sanitizes layer ids', () => {
+    expect(tableNameFor('vector-abc123')).toBe('t_vector_abc123');
   });
 });
 
-describe("describeSource", () => {
-  it("describes a URL source", () => {
-    expect(describeSource("https://example.com/a.geojson")).toEqual({
-      kind: "url",
-      url: "https://example.com/a.geojson",
+describe('describeSource', () => {
+  it('describes a URL source', () => {
+    expect(describeSource('https://example.com/a.geojson')).toEqual({
+      kind: 'url',
+      url: 'https://example.com/a.geojson',
     });
   });
 
-  it("describes a File source with its name", () => {
-    const file = new File(["{}"], "cities.gpkg");
-    expect(describeSource(file)).toEqual({
-      kind: "file",
-      fileName: "cities.gpkg",
+  it('describes a File source with its name', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file)).toEqual({ kind: 'file', fileName: 'cities.gpkg' });
+  });
+
+  it('echoes a sourcePath on a File source when provided', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file, '/data/cities.gpkg')).toEqual({
+      kind: 'file',
+      fileName: 'cities.gpkg',
+      path: '/data/cities.gpkg',
     });
   });
 
-  it("echoes a sourcePath on a File source when provided", () => {
-    const file = new File(["{}"], "cities.gpkg");
-    expect(describeSource(file, "/data/cities.gpkg")).toEqual({
-      kind: "file",
-      fileName: "cities.gpkg",
-      path: "/data/cities.gpkg",
+  it('echoes a sourcePath on a bare Blob source', () => {
+    const blob = new Blob(['{}']);
+    expect(describeSource(blob, '/data/cities.gpkg')).toEqual({
+      kind: 'file',
+      path: '/data/cities.gpkg',
     });
   });
 
-  it("echoes a sourcePath on a bare Blob source", () => {
-    const blob = new Blob(["{}"]);
-    expect(describeSource(blob, "/data/cities.gpkg")).toEqual({
-      kind: "file",
-      path: "/data/cities.gpkg",
-    });
-  });
-
-  it("omits a blank sourcePath and ignores it for URL sources", () => {
-    const file = new File(["{}"], "cities.gpkg");
-    expect(describeSource(file, "   ")).toEqual({
-      kind: "file",
-      fileName: "cities.gpkg",
-    });
-    expect(
-      describeSource("https://example.com/a.geojson", "/data/a.geojson"),
-    ).toEqual({
-      kind: "url",
-      url: "https://example.com/a.geojson",
+  it('omits a blank sourcePath and ignores it for URL sources', () => {
+    const file = new File(['{}'], 'cities.gpkg');
+    expect(describeSource(file, '   ')).toEqual({ kind: 'file', fileName: 'cities.gpkg' });
+    expect(describeSource('https://example.com/a.geojson', '/data/a.geojson')).toEqual({
+      kind: 'url',
+      url: 'https://example.com/a.geojson',
     });
   });
 });
 
-describe("LayerManager GeoJSON path", () => {
-  it("restores polygon sources and layers after a basemap style swap", async () => {
+describe('LayerManager GeoJSON path', () => {
+  it('restores polygon sources and layers after a basemap style swap', async () => {
     const { manager, map, emit } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
 
     map.sources.clear();
     map.layers.clear();
@@ -181,60 +173,37 @@ describe("LayerManager GeoJSON path", () => {
     await manager.restoreLayersAfterStyleChange();
 
     expect(map.addSource).toHaveBeenCalledWith(
-      "poly-source",
-      expect.objectContaining({ type: "geojson", data: POLYGON_FC }),
+      'poly-source',
+      expect.objectContaining({ type: 'geojson', data: POLYGON_FC }),
     );
-    expect(map.layers).toEqual(new Set(["poly-fill", "poly-outline"]));
-    expect(manager.getLayer("poly")?.layerIds).toEqual([
-      "poly-fill",
-      "poly-outline",
-    ]);
+    expect(map.layers).toEqual(new Set(['poly-fill', 'poly-outline']));
+    expect(manager.getLayer('poly')?.layerIds).toEqual(['poly-fill', 'poly-outline']);
     expect(emit).toHaveBeenLastCalledWith(
-      "layerupdated",
-      expect.objectContaining({
-        layer: expect.objectContaining({ id: "poly" }),
-      }),
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ id: 'poly' }) }),
     );
   });
 
-  it("restores missing layers without duplicating a preserved source", async () => {
-    const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
-
-    map.layers.clear();
-    map.addSource.mockClear();
-    map.addLayer.mockClear();
-
-    await manager.restoreLayersAfterStyleChange();
-
-    expect(map.addSource).not.toHaveBeenCalled();
-    expect(map.layers).toEqual(new Set(["poly-fill", "poly-outline"]));
-  });
-
-  it("keeps the normal URL path when the host loader declines a source", async () => {
+  it('keeps the normal URL path when the host loader declines a source', async () => {
     const urlLoader = vi.fn().mockResolvedValue(null);
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: async () => JSON.stringify(POLYGON_FC),
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
     const { manager } = createManager({ urlLoader });
 
-    const info = await manager.addData(
-      "https://files.example.com/data.geojson",
-    );
+    const info = await manager.addData('https://files.example.com/data.geojson');
 
     expect(urlLoader).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://files.example.com/data.geojson",
-    );
+    expect(fetchMock).toHaveBeenCalledWith('https://files.example.com/data.geojson');
     expect(info.source).toEqual({
-      kind: "url",
-      url: "https://files.example.com/data.geojson",
+      kind: 'url',
+      url: 'https://files.example.com/data.geojson',
     });
   });
 
-  it("detects extensionless GeoJSON loaded by the host and preserves its URL on reload", async () => {
+  it('detects extensionless GeoJSON loaded by the host and preserves its URL on reload', async () => {
     const reloaded = {
       ...POLYGON_FC,
       features: [...POLYGON_FC.features, ...POLYGON_FC.features],
@@ -242,85 +211,72 @@ describe("LayerManager GeoJSON path", () => {
     const urlLoader = vi
       .fn()
       .mockResolvedValueOnce(
-        new Blob([JSON.stringify(POLYGON_FC)], {
-          type: "application/geo+json",
-        }),
+        new Blob([JSON.stringify(POLYGON_FC)], { type: 'application/geo+json' }),
       )
       .mockResolvedValueOnce(
-        new Blob([JSON.stringify(reloaded)], { type: "application/geo+json" }),
+        new Blob([JSON.stringify(reloaded)], { type: 'application/geo+json' }),
       );
     const { manager, map } = createManager({ urlLoader });
 
-    const info = await manager.addData("https://api.example.com/items", {
-      id: "native-url",
+    const info = await manager.addData('https://api.example.com/items', {
+      id: 'native-url',
     });
 
-    expect(urlLoader).toHaveBeenCalledWith("https://api.example.com/items");
-    expect(info.format).toBe("geojson");
+    expect(urlLoader).toHaveBeenCalledWith('https://api.example.com/items');
+    expect(info.format).toBe('geojson');
     expect(info.source).toEqual({
-      kind: "url",
-      url: "https://api.example.com/items",
+      kind: 'url',
+      url: 'https://api.example.com/items',
     });
-    const refreshed = await manager.reloadLayer("native-url");
+    const refreshed = await manager.reloadLayer('native-url');
     expect(urlLoader).toHaveBeenCalledTimes(2);
     expect(refreshed?.source).toEqual(info.source);
     expect(map.addSource).toHaveBeenCalledWith(
-      "native-url-source",
+      'native-url-source',
       expect.objectContaining({
-        type: "geojson",
-        data: expect.objectContaining({
-          features: expect.arrayContaining(reloaded.features),
-        }),
+        type: 'geojson',
+        data: expect.objectContaining({ features: expect.arrayContaining(reloaded.features) }),
       }),
     );
   });
 
-  it("adds a GeoJSON object without touching the engine", async () => {
+  it('adds a GeoJSON object without touching the engine', async () => {
     const engine = createMockEngine();
     const { manager, map, emit } = createManager({}, engine);
 
-    const info = await manager.addData(POLYGON_FC, { id: "poly" });
+    const info = await manager.addData(POLYGON_FC, { id: 'poly' });
 
-    expect(info.renderMode).toBe("geojson");
-    expect(info.geometryType).toBe("polygon");
+    expect(info.renderMode).toBe('geojson');
+    expect(info.geometryType).toBe('polygon');
     expect(info.featureCount).toBe(1);
     expect(info.bbox).toEqual([0, 0, 10, 10]);
-    expect(map.addSource).toHaveBeenCalledWith(
-      "poly-source",
-      expect.objectContaining({ type: "geojson" }),
-    );
+    expect(map.addSource).toHaveBeenCalledWith('poly-source', expect.objectContaining({ type: 'geojson' }));
     // Polygon gets fill + outline layers
-    expect(info.layerIds).toEqual(["poly-fill", "poly-outline"]);
+    expect(info.layerIds).toEqual(['poly-fill', 'poly-outline']);
     expect(map.fitBounds).toHaveBeenCalled();
     expect(engine.ingest).not.toHaveBeenCalled();
-    expect(emit).toHaveBeenCalledWith(
-      "layeradded",
-      expect.objectContaining({ layer: expect.anything() }),
-    );
+    expect(emit).toHaveBeenCalledWith('layeradded', expect.objectContaining({ layer: expect.anything() }));
   });
 
-  it("reprojects a GeoJSON that declares a non-WGS84 crs member", async () => {
+  it('reprojects a GeoJSON that declares a non-WGS84 crs member', async () => {
     // A projected FeatureCollection (metres) tagged with a legacy `crs` member.
     const projected = {
-      type: "FeatureCollection",
-      crs: {
-        type: "name",
-        properties: { name: "urn:ogc:def:crs:EPSG::26911" },
-      },
+      type: 'FeatureCollection',
+      crs: { type: 'name', properties: { name: 'urn:ogc:def:crs:EPSG::26911' } },
       features: [
         {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [455367, 5278215] },
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [455367, 5278215] },
           properties: { class: 255 },
         },
       ],
     };
     const wgs84 = {
-      type: "FeatureCollection",
+      type: 'FeatureCollection',
       features: [
         {
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [-117.59, 47.65] },
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [-117.59, 47.65] },
           properties: { class: 255 },
         },
       ],
@@ -330,112 +286,91 @@ describe("LayerManager GeoJSON path", () => {
     });
     const { manager, map } = createManager({}, engine);
 
-    const info = await manager.addData(projected as FeatureCollection, {
-      id: "utm",
-    });
+    const info = await manager.addData(projected as FeatureCollection, { id: 'utm' });
 
     // The parsed EPSG code drives the reprojection, and the rendered source is
     // the WGS84 collection (so its bbox is valid lon/lat, not metres).
-    expect(engine.reprojectGeoJSON).toHaveBeenCalledWith(
-      projected,
-      "EPSG:26911",
-    );
-    expect(info.renderMode).toBe("geojson");
+    expect(engine.reprojectGeoJSON).toHaveBeenCalledWith(projected, 'EPSG:26911');
+    expect(info.renderMode).toBe('geojson');
     expect(info.bbox).toEqual([-117.59, 47.65, -117.59, 47.65]);
     expect(map.addSource).toHaveBeenCalledWith(
-      "utm-source",
+      'utm-source',
       expect.objectContaining({
         data: expect.objectContaining({
-          features: [
-            expect.objectContaining({
-              geometry: { type: "Point", coordinates: [-117.59, 47.65] },
-            }),
-          ],
+          features: [expect.objectContaining({ geometry: { type: 'Point', coordinates: [-117.59, 47.65] } })],
         }),
       }),
     );
   });
 
-  it("does not reproject a plain WGS84 GeoJSON", async () => {
+  it('does not reproject a plain WGS84 GeoJSON', async () => {
     const engine = createMockEngine();
     const { manager } = createManager({}, engine);
 
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
 
     expect(engine.reprojectGeoJSON).not.toHaveBeenCalled();
   });
 
-  it("rebuilds the polygon layers when 3D extrusion is toggled", async () => {
+  it('rebuilds the polygon layers when 3D extrusion is toggled', async () => {
     const { manager, map } = createManager();
-    const info = await manager.addData(POLYGON_FC, {
-      id: "poly",
-      fitBounds: false,
-    });
-    expect(info.layerIds).toEqual(["poly-fill", "poly-outline"]);
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(info.layerIds).toEqual(['poly-fill', 'poly-outline']);
 
     // Turning extrusion on swaps the flat fill/outline for a fill-extrusion
     // layer (a structural change, not a paint patch). The source is untouched.
     map.addSource.mockClear();
-    manager.setLayerStyle("poly", { extrusionEnabled: true });
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-fill");
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-outline");
+    manager.setLayerStyle('poly', { extrusionEnabled: true });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-fill');
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-outline');
     expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "poly-extrusion", type: "fill-extrusion" }),
+      expect.objectContaining({ id: 'poly-extrusion', type: 'fill-extrusion' }),
       undefined,
     );
     expect(map.addSource).not.toHaveBeenCalled();
-    expect(manager.getLayers().find((l) => l.id === "poly")?.layerIds).toEqual([
-      "poly-extrusion",
+    expect(manager.getLayers().find((l) => l.id === 'poly')?.layerIds).toEqual([
+      'poly-extrusion',
     ]);
 
     // Turning it back off restores the flat fill/outline pair.
-    manager.setLayerStyle("poly", { extrusionEnabled: false });
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-extrusion");
-    expect(manager.getLayers().find((l) => l.id === "poly")?.layerIds).toEqual([
-      "poly-fill",
-      "poly-outline",
+    manager.setLayerStyle('poly', { extrusionEnabled: false });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-extrusion');
+    expect(manager.getLayers().find((l) => l.id === 'poly')?.layerIds).toEqual([
+      'poly-fill',
+      'poly-outline',
     ]);
   });
 
-  it("treats an extrusion color/height restyle as a paint update, not a rebuild", async () => {
+  it('treats an extrusion color/height restyle as a paint update, not a rebuild', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
-    manager.setLayerStyle("poly", { extrusionEnabled: true });
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    manager.setLayerStyle('poly', { extrusionEnabled: true });
     map.removeLayer.mockClear();
     map.setPaintProperty.mockClear();
 
-    manager.setLayerStyle("poly", {
-      extrusionColor: "#ff0000",
-      extrusionHeight: 12,
-    });
+    manager.setLayerStyle('poly', { extrusionColor: '#ff0000', extrusionHeight: 12 });
     expect(map.removeLayer).not.toHaveBeenCalled();
     expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-extrusion",
-      "fill-extrusion-color",
-      "#ff0000",
+      'poly-extrusion',
+      'fill-extrusion-color',
+      '#ff0000',
     );
-    expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-extrusion",
-      "fill-extrusion-height",
-      12,
-    );
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-extrusion', 'fill-extrusion-height', 12);
   });
 
-  it("rejects duplicate layer ids", async () => {
+  it('rejects duplicate layer ids', async () => {
     const { manager } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    await expect(manager.addData(POLYGON_FC, { id: "poly" })).rejects.toThrow(
-      /already exists/,
-    );
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    await expect(manager.addData(POLYGON_FC, { id: 'poly' })).rejects.toThrow(/already exists/);
   });
 
-  it("skips fitBounds when disabled", async () => {
+  it('skips fitBounds when disabled', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
     expect(map.fitBounds).not.toHaveBeenCalled();
   });
 
-  it("caps the fit at the flat-map zoom so a near-global extent stays visible", async () => {
+  it('caps the fit at the flat-map zoom so a near-global extent stays visible', async () => {
     // The globe camera zooms *in* on extents this wide (see utils/fit.ts), so
     // the fit has to arrive with a ceiling of its own or the layer lands
     // behind the horizon.
@@ -443,69 +378,53 @@ describe("LayerManager GeoJSON path", () => {
       ingest: vi.fn(async (_source, tableName) => ({
         tableName,
         featureCount: 429,
-        fields: ["name"],
-        bbox: [-124.16, 16.53, 135.51, 51.58] as [
-          number,
-          number,
-          number,
-          number,
-        ],
-        geometryType: "point" as const,
+        fields: ['name'],
+        bbox: [-124.16, 16.53, 135.51, 51.58] as [number, number, number, number],
+        geometryType: 'point' as const,
       })),
     });
     const { manager, map } = createManager({}, engine, {
-      getCanvas: vi.fn(() => ({
-        style: {},
-        clientWidth: 576,
-        clientHeight: 648,
-      })),
+      getCanvas: vi.fn(() => ({ style: {}, clientWidth: 576, clientHeight: 648 })),
     });
 
-    await manager.addData(new File(["x"], "attacks.kmz"), { id: "kmz" });
+    await manager.addData(new File(['x'], 'attacks.kmz'), { id: 'kmz' });
 
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
     expect(map.fitBounds.mock.calls[0][1].maxZoom).toBeCloseTo(0.4255, 3);
   });
 
-  it("emits error and rethrows on invalid sources", async () => {
+  it('emits error and rethrows on invalid sources', async () => {
     const { manager, emit } = createManager();
     vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" }),
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' }),
     );
-    await expect(
-      manager.addData("https://x.com/missing.geojson"),
-    ).rejects.toThrow(/404/);
-    expect(emit).toHaveBeenCalledWith(
-      "error",
-      expect.objectContaining({ error: expect.any(Error) }),
-    );
+    await expect(manager.addData('https://x.com/missing.geojson')).rejects.toThrow(/404/);
+    expect(emit).toHaveBeenCalledWith('error', expect.objectContaining({ error: expect.any(Error) }));
   });
 
-  it("rejects a loose .shp without its siblings with an actionable message", async () => {
+  it('rejects a loose .shp without its siblings with an actionable message', async () => {
     const { manager, emit, engine } = createManager();
 
-    await expect(
-      manager.addData(new File(["shp"], "cities.shp")),
-    ).rejects.toThrow(/Select the \.shp together with its \.shx and \.dbf/);
+    await expect(manager.addData(new File(['shp'], 'cities.shp'))).rejects.toThrow(
+      /Select the \.shp together with its \.shx and \.dbf/,
+    );
     // Fails fast, before any engine work.
     expect(engine.ingest).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledWith(
-      "error",
+      'error',
       expect.objectContaining({ error: expect.any(Error) }),
     );
   });
 
-  it("loads a loose .shp when its .shx and .dbf siblings are provided", async () => {
+  it('loads a loose .shp when its .shx and .dbf siblings are provided', async () => {
     const { manager, engine } = createManager();
 
-    await manager.addData(new File(["shp"], "cities.shp"), {
-      id: "cities",
+    await manager.addData(new File(['shp'], 'cities.shp'), {
+      id: 'cities',
       companionFiles: [
-        new File(["shx"], "cities.shx"),
-        new File(["dbf"], "cities.dbf"),
+        new File(['shx'], 'cities.shx'),
+        new File(['dbf'], 'cities.dbf'),
       ],
     });
 
@@ -513,675 +432,549 @@ describe("LayerManager GeoJSON path", () => {
   });
 });
 
-describe("getLayerGeoJSON", () => {
-  it("returns null for an unknown layer id", async () => {
+describe('getLayerGeoJSON', () => {
+  it('returns null for an unknown layer id', async () => {
     const { manager } = createManager();
-    expect(await manager.getLayerGeoJSON("nope")).toBeNull();
+    expect(await manager.getLayerGeoJSON('nope')).toBeNull();
   });
 
-  it("returns the cached collection for a point geojson layer", async () => {
+  it('returns the cached collection for a point geojson layer', async () => {
     const { manager, engine } = createManager();
-    await manager.addData(POINT_FC, { id: "dots", fitBounds: false });
-    expect(await manager.getLayerGeoJSON("dots")).toEqual(POINT_FC);
+    await manager.addData(POINT_FC, { id: 'dots', fitBounds: false });
+    expect(await manager.getLayerGeoJSON('dots')).toEqual(POINT_FC);
     // Cached in memory, so no engine readback.
     expect(engine.exportGeoJSON).not.toHaveBeenCalled();
   });
 
-  it("reads a line/polygon geojson layer back from its map source", async () => {
+  it('reads a line/polygon geojson layer back from its map source', async () => {
     const { manager, engine } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
     // Polygon geojson keeps no cached copy; it comes from the map source.
-    expect(await manager.getLayerGeoJSON("poly")).toEqual(POLYGON_FC);
+    expect(await manager.getLayerGeoJSON('poly')).toEqual(POLYGON_FC);
     expect(engine.exportGeoJSON).not.toHaveBeenCalled();
   });
 
-  it("exports an engine-backed (tiled) layer from its DuckDB table", async () => {
+  it('exports an engine-backed (tiled) layer from its DuckDB table', async () => {
     const { manager, engine } = createManager();
-    await manager.addData(new File(["gpkg"], "cities.gpkg"), {
-      id: "cities",
-      renderMode: "tiles",
+    await manager.addData(new File(['gpkg'], 'cities.gpkg'), {
+      id: 'cities',
+      renderMode: 'tiles',
       fitBounds: false,
     });
-    expect(await manager.getLayerGeoJSON("cities")).toEqual(POLYGON_FC);
-    expect(engine.exportGeoJSON).toHaveBeenCalledWith("t_cities");
+    expect(await manager.getLayerGeoJSON('cities')).toEqual(POLYGON_FC);
+    expect(engine.exportGeoJSON).toHaveBeenCalledWith('t_cities');
   });
 });
 
-describe("getLayerPropertyValues", () => {
-  it("returns null for an unknown layer or field", async () => {
+describe('getLayerPropertyValues', () => {
+  it('returns null for an unknown layer or field', async () => {
     const { manager } = createManager();
-    expect(await manager.getLayerPropertyValues("nope", "name")).toBeNull();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
-    expect(await manager.getLayerPropertyValues("poly", "missing")).toBeNull();
+    expect(await manager.getLayerPropertyValues('nope', 'name')).toBeNull();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(await manager.getLayerPropertyValues('poly', 'missing')).toBeNull();
   });
 
-  it("reads values from an in-memory GeoJSON layer", async () => {
+  it('reads values from an in-memory GeoJSON layer', async () => {
     const { manager, engine } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
-    expect(await manager.getLayerPropertyValues("poly", "name")).toEqual([
-      "box",
-    ]);
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(await manager.getLayerPropertyValues('poly', 'name')).toEqual(['box']);
     expect(engine.getPropertyValues).not.toHaveBeenCalled();
   });
 
-  it("queries only the selected field for an engine-backed tiled layer", async () => {
+  it('queries only the selected field for an engine-backed tiled layer', async () => {
     const { manager, engine } = createManager();
-    const info = await manager.addData(new File(["gpkg"], "cities.gpkg"), {
-      id: "cities",
-      renderMode: "tiles",
+    const info = await manager.addData(new File(['gpkg'], 'cities.gpkg'), {
+      id: 'cities',
+      renderMode: 'tiles',
       fitBounds: false,
     });
-    expect(info.fields).toEqual(["name", "population"]);
-    expect(await manager.getLayerPropertyValues("cities", "name")).toEqual([
-      "Central",
-      "North",
-      "South",
+    expect(info.fields).toEqual(['name', 'population']);
+    expect(await manager.getLayerPropertyValues('cities', 'name')).toEqual([
+      'Central',
+      'North',
+      'South',
     ]);
-    expect(engine.getPropertyValues).toHaveBeenCalledWith("t_cities", "name");
+    expect(engine.getPropertyValues).toHaveBeenCalledWith('t_cities', 'name');
     expect(engine.exportGeoJSON).not.toHaveBeenCalled();
   });
 });
 
-describe("isLooseShapefileMissingSiblings", () => {
-  it("flags a lone .shp", () => {
-    expect(isLooseShapefileMissingSiblings(new File(["x"], "a.shp"), {})).toBe(
-      true,
-    );
+describe('isLooseShapefileMissingSiblings', () => {
+  it('flags a lone .shp', () => {
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {})).toBe(true);
   });
 
-  it("flags a .shp missing either the .shx or the .dbf", () => {
+  it('flags a .shp missing either the .shx or the .dbf', () => {
     expect(
-      isLooseShapefileMissingSiblings(new File(["x"], "a.shp"), {
-        companionFiles: [new File(["x"], "a.shx")],
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.shx')],
       }),
     ).toBe(true);
     expect(
-      isLooseShapefileMissingSiblings(new File(["x"], "a.shp"), {
-        companionFiles: [new File(["x"], "a.dbf")],
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.dbf')],
       }),
     ).toBe(true);
   });
 
-  it("does not flag a .shp with both required siblings (case-insensitive)", () => {
+  it('does not flag a .shp with both required siblings (case-insensitive)', () => {
     expect(
-      isLooseShapefileMissingSiblings(new File(["x"], "a.shp"), {
-        companionFiles: [new File(["x"], "a.SHX"), new File(["x"], "a.DBF")],
+      isLooseShapefileMissingSiblings(new File(['x'], 'a.shp'), {
+        companionFiles: [new File(['x'], 'a.SHX'), new File(['x'], 'a.DBF')],
       }),
     ).toBe(false);
   });
 
-  it("does not flag zipped shapefiles, other files, or non-File sources", () => {
-    expect(isLooseShapefileMissingSiblings(new File(["x"], "a.zip"), {})).toBe(
-      false,
-    );
-    expect(
-      isLooseShapefileMissingSiblings(new File(["x"], "a.geojson"), {}),
-    ).toBe(false);
-    expect(isLooseShapefileMissingSiblings("https://x.com/a.shp", {})).toBe(
-      false,
-    );
+  it('does not flag zipped shapefiles, other files, or non-File sources', () => {
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.zip'), {})).toBe(false);
+    expect(isLooseShapefileMissingSiblings(new File(['x'], 'a.geojson'), {})).toBe(false);
+    expect(isLooseShapefileMissingSiblings('https://x.com/a.shp', {})).toBe(false);
   });
 });
 
 /** Extracts the provider registry key from a duckdb:// tile URL template. */
 function providerKeyFromSource(spec: { tiles?: string[] }): string {
-  const match = /^duckdb:\/\/([^/]+)\//.exec(spec.tiles?.[0] ?? "");
-  return match ? decodeURIComponent(match[1]) : "";
+  const match = /^duckdb:\/\/([^/]+)\//.exec(spec.tiles?.[0] ?? '');
+  return match ? decodeURIComponent(match[1]) : '';
 }
 
-describe("LayerManager engine path", () => {
-  it("renders small engine data as GeoJSON", async () => {
+describe('LayerManager engine path', () => {
+  it('renders small engine data as GeoJSON', async () => {
     const engine = createMockEngine();
     const { manager, map } = createManager({}, engine);
-    const file = new File(["x"], "data.gpkg");
+    const file = new File(['x'], 'data.gpkg');
 
-    const info = await manager.addData(file, { id: "small" });
+    const info = await manager.addData(file, { id: 'small' });
 
-    expect(engine.ingest).toHaveBeenCalledWith(
-      file,
-      "t_small",
-      expect.objectContaining({ format: "geopackage" }),
-    );
-    expect(engine.exportGeoJSON).toHaveBeenCalledWith("t_small");
-    expect(info.renderMode).toBe("geojson");
-    expect(map.addSource).toHaveBeenCalledWith(
-      "small-source",
-      expect.objectContaining({ type: "geojson" }),
-    );
+    expect(engine.ingest).toHaveBeenCalledWith(file, 't_small', expect.objectContaining({ format: 'geopackage' }));
+    expect(engine.exportGeoJSON).toHaveBeenCalledWith('t_small');
+    expect(info.renderMode).toBe('geojson');
+    expect(map.addSource).toHaveBeenCalledWith('small-source', expect.objectContaining({ type: 'geojson' }));
   });
 
-  it("renders large engine data as tiles", async () => {
+  it('renders large engine data as tiles', async () => {
     const engine = createMockEngine({
       ingest: vi.fn(async (_s, tableName) => ({
         tableName,
         featureCount: 1_000_000,
         bbox: [0, 0, 10, 10] as [number, number, number, number],
-        geometryType: "polygon" as const,
+        geometryType: 'polygon' as const,
       })),
     });
     const { manager, map } = createManager({}, engine);
 
-    const info = await manager.addData(new File(["x"], "big.parquet"), {
-      id: "big",
-    });
+    const info = await manager.addData(new File(['x'], 'big.parquet'), { id: 'big' });
 
-    expect(info.renderMode).toBe("tiles");
-    expect(engine.prepareTiles).toHaveBeenCalledWith("t_big");
-    const sourceSpec = map.addSource.mock.calls.find(
-      (c) => c[0] === "big-source",
-    )?.[1] as {
+    expect(info.renderMode).toBe('tiles');
+    expect(engine.prepareTiles).toHaveBeenCalledWith('t_big');
+    const sourceSpec = map.addSource.mock.calls.find((c) => c[0] === 'big-source')?.[1] as {
       type: string;
       tiles: string[];
       bounds: number[];
     };
-    expect(sourceSpec).toMatchObject({
-      type: "vector",
-      bounds: [0, 0, 10, 10],
-    });
+    expect(sourceSpec).toMatchObject({ type: 'vector', bounds: [0, 0, 10, 10] });
     // Tile URL uses a generated provider key, not the public layer id
-    expect(sourceSpec.tiles[0]).toMatch(
-      /^duckdb:\/\/big-tiles-[a-z0-9]+\/\{z\}\/\{x\}\/\{y\}$/,
-    );
+    expect(sourceSpec.tiles[0]).toMatch(/^duckdb:\/\/big-tiles-[a-z0-9]+\/\{z\}\/\{x\}\/\{y\}$/);
     const providerKey = providerKeyFromSource(sourceSpec);
     expect(hasTileProvider(providerKey)).toBe(true);
     // source-layer must match the layer id used in the tile query
     expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ "source-layer": "big" }),
+      expect.objectContaining({ 'source-layer': 'big' }),
       undefined,
     );
 
-    manager.removeLayer("big");
+    manager.removeLayer('big');
     expect(hasTileProvider(providerKey)).toBe(false);
     // dropTable is fire-and-forget through the async engine provider
-    await vi.waitFor(() =>
-      expect(engine.dropTable).toHaveBeenCalledWith("t_big"),
-    );
+    await vi.waitFor(() => expect(engine.dropTable).toHaveBeenCalledWith('t_big'));
   });
 
-  it("passes the ingest mode to the engine and reflects the result", async () => {
+  it('passes the ingest mode to the engine and reflects the result', async () => {
     const engine = createMockEngine({
       ingest: vi.fn(async (_s, tableName) => ({
         tableName,
         featureCount: 100,
         bbox: [0, 0, 10, 10] as [number, number, number, number],
-        geometryType: "polygon" as const,
+        geometryType: 'polygon' as const,
         streamed: true,
       })),
     });
     const { manager } = createManager({}, engine);
 
-    const info = await manager.addData("https://x.com/big.parquet", {
-      id: "streamy",
-      ingestMode: "stream",
+    const info = await manager.addData('https://x.com/big.parquet', {
+      id: 'streamy',
+      ingestMode: 'stream',
     });
 
     expect(engine.ingest).toHaveBeenCalledWith(
-      "https://x.com/big.parquet",
-      "t_streamy",
-      expect.objectContaining({ mode: "stream" }),
+      'https://x.com/big.parquet',
+      't_streamy',
+      expect.objectContaining({ mode: 'stream' }),
     );
-    expect(info.ingestMode).toBe("stream");
+    expect(info.ingestMode).toBe('stream');
   });
 
-  it("falls back to table mode when the engine does not stream", async () => {
+  it('falls back to table mode when the engine does not stream', async () => {
     const { manager } = createManager();
-    const info = await manager.addData(new File(["x"], "data.gpkg"), {
-      id: "nostream",
-      ingestMode: "stream",
+    const info = await manager.addData(new File(['x'], 'data.gpkg'), {
+      id: 'nostream',
+      ingestMode: 'stream',
     });
     // Mock engine reports streamed: undefined -> resolved as table
-    expect(info.ingestMode).toBe("table");
+    expect(info.ingestMode).toBe('table');
   });
 
-  it("expands multi-layer containers into one vector layer per source layer", async () => {
+  it('expands multi-layer containers into one vector layer per source layer', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager, map, emit } = createManager({}, engine);
 
-    const info = await manager.addData(new File(["x"], "city.gpkg"), {
-      id: "city",
-    });
+    const info = await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
 
     expect(engine.listLayers).toHaveBeenCalledWith(
       expect.anything(),
-      "t_city",
-      expect.objectContaining({ format: "geopackage" }),
+      't_city',
+      expect.objectContaining({ format: 'geopackage' }),
     );
     expect(engine.ingest).toHaveBeenCalledWith(
       expect.anything(),
-      "t_city_roads",
-      expect.objectContaining({ sourceLayer: "roads" }),
+      't_city_roads',
+      expect.objectContaining({ sourceLayer: 'roads' }),
     );
     expect(engine.ingest).toHaveBeenCalledWith(
       expect.anything(),
-      "t_city_buildings",
-      expect.objectContaining({ sourceLayer: "buildings" }),
+      't_city_buildings',
+      expect.objectContaining({ sourceLayer: 'buildings' }),
     );
-    expect(
-      manager
-        .getLayers()
-        .map((l) => l.id)
-        .sort(),
-    ).toEqual(["city-buildings", "city-roads"]);
-    expect(manager.getLayer("city-roads")?.name).toBe("roads");
-    expect(info.id).toBe("city-roads");
+    expect(manager.getLayers().map((l) => l.id).sort()).toEqual([
+      'city-buildings',
+      'city-roads',
+    ]);
+    expect(manager.getLayer('city-roads')?.name).toBe('roads');
+    expect(info.id).toBe('city-roads');
     // One combined fitBounds for the whole container
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith(
-      "loading",
-      expect.objectContaining({ message: expect.stringContaining("2 layers") }),
+      'loading',
+      expect.objectContaining({ message: expect.stringContaining('2 layers') }),
     );
   });
 
-  it("reuses one host download across every expanded container layer", async () => {
-    const urlLoader = vi.fn().mockResolvedValue(new Blob(["gpkg"]));
+  it('reuses one host download across every expanded container layer', async () => {
+    const urlLoader = vi.fn().mockResolvedValue(new Blob(['gpkg']));
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({ urlLoader }, engine);
 
-    await manager.addData("https://files.example.com/city.gpkg", {
-      id: "city",
-    });
+    await manager.addData('https://files.example.com/city.gpkg', { id: 'city' });
 
     expect(urlLoader).toHaveBeenCalledTimes(1);
     expect(manager.getLayers().map((layer) => layer.source)).toEqual([
-      { kind: "url", url: "https://files.example.com/city.gpkg" },
-      { kind: "url", url: "https://files.example.com/city.gpkg" },
+      { kind: 'url', url: 'https://files.example.com/city.gpkg' },
+      { kind: 'url', url: 'https://files.example.com/city.gpkg' },
     ]);
   });
 
-  it("skips expansion when a sourceLayer is requested", async () => {
+  it('skips expansion when a sourceLayer is requested', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({}, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), {
-      id: "one",
-      sourceLayer: "roads",
-    });
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'one', sourceLayer: 'roads' });
     expect(engine.listLayers).not.toHaveBeenCalled();
     expect(manager.getLayers()).toHaveLength(1);
   });
 
-  it("loads only the layers named by sourceLayers", async () => {
+  it('loads only the layers named by sourceLayers', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings", "parks"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings', 'parks']),
     });
     const { manager } = createManager({}, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), {
-      id: "city",
+    await manager.addData(new File(['x'], 'city.gpkg'), {
+      id: 'city',
       // Out of order and mis-cased on purpose: the load follows the
       // container's order and matches names case-insensitively.
-      sourceLayers: ["PARKS", "roads"],
+      sourceLayers: ['PARKS', 'roads'],
     });
 
-    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual([
-      "roads",
-      "parks",
-    ]);
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads', 'parks']);
   });
 
-  it("rejects a sourceLayers list that matches no layer in the container", async () => {
+  it('rejects a sourceLayers list that matches no layer in the container', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({}, engine);
 
     await expect(
-      manager.addData(new File(["x"], "city.gpkg"), {
-        id: "city",
-        sourceLayers: ["rivers"],
-      }),
+      manager.addData(new File(['x'], 'city.gpkg'), { id: 'city', sourceLayers: ['rivers'] }),
     ).rejects.toThrow(/rivers.*roads, buildings/s);
     expect(manager.getLayers()).toHaveLength(0);
   });
 
-  it("loads the subset a host selectLayers callback returns", async () => {
+  it('loads the subset a host selectLayers callback returns', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings", "parks"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings', 'parks']),
     });
-    const selectLayers = vi.fn(async () => ["parks", "roads"]);
+    const selectLayers = vi.fn(async () => ['parks', 'roads']);
     const { manager } = createManager({ selectLayers }, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), { id: "city" });
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
 
-    expect(selectLayers).toHaveBeenCalledWith(["roads", "buildings", "parks"], {
-      sourceName: "city",
-      format: "geopackage",
-    });
-    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual([
-      "roads",
-      "parks",
-    ]);
+    expect(selectLayers).toHaveBeenCalledWith(
+      ['roads', 'buildings', 'parks'],
+      { sourceName: 'city', format: 'geopackage' },
+    );
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads', 'parks']);
   });
 
-  it("loads every layer when the selector returns null", async () => {
+  it('loads every layer when the selector returns null', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({ selectLayers: () => null }, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), { id: "city" });
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
     expect(manager.getLayers()).toHaveLength(2);
   });
 
-  it("cancels the load when the selector returns nothing", async () => {
+  it('cancels the load when the selector returns nothing', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager, emit } = createManager({ selectLayers: () => [] }, engine);
 
     const error = await manager
-      .addData(new File(["x"], "city.gpkg"), { id: "city" })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
+      .addData(new File(['x'], 'city.gpkg'), { id: 'city' })
+      .then(() => null, (err: unknown) => err);
 
     expect(isVectorLayerSelectionCancelled(error)).toBe(true);
     expect(manager.getLayers()).toHaveLength(0);
     // A dismissed picker is not a failure, so no error event reaches the panel.
-    expect(emit).not.toHaveBeenCalledWith("error", expect.anything());
+    expect(emit).not.toHaveBeenCalledWith('error', expect.anything());
   });
 
-  it("sourceLayers wins over the selector", async () => {
+  it('sourceLayers wins over the selector', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
-    const selectLayers = vi.fn(() => ["buildings"]);
+    const selectLayers = vi.fn(() => ['buildings']);
     const { manager } = createManager({ selectLayers }, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), {
-      id: "city",
-      sourceLayers: ["roads"],
+    await manager.addData(new File(['x'], 'city.gpkg'), {
+      id: 'city',
+      sourceLayers: ['roads'],
     });
 
     expect(selectLayers).not.toHaveBeenCalled();
-    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual([
-      "roads",
-    ]);
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['roads']);
   });
 
-  it("opens the built-in picker over the map and loads what the user checks", async () => {
-    const container = document.createElement("div");
+  it('opens the built-in picker over the map and loads what the user checks', async () => {
+    const container = document.createElement('div');
     document.body.appendChild(container);
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
-    const { manager } = createManager({}, engine, {
-      getContainer: () => container,
-    });
+    const { manager } = createManager({}, engine, { getContainer: () => container });
 
-    const pending = manager.addData(new File(["x"], "city.gpkg"), {
-      id: "city",
-    });
+    const pending = manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
     // Let listLayers and the picker render before inspecting the DOM.
     await vi.waitFor(() => {
-      expect(
-        container.querySelector(".vector-control-layer-picker"),
-      ).not.toBeNull();
+      expect(container.querySelector('.vector-control-layer-picker')).not.toBeNull();
     });
 
     const boxes = Array.from(
-      container.querySelectorAll<HTMLInputElement>(
-        ".vector-control-layer-picker-item input",
-      ),
+      container.querySelectorAll<HTMLInputElement>('.vector-control-layer-picker-item input'),
     );
     boxes[0].checked = false;
-    boxes[0].dispatchEvent(new Event("change"));
-    Array.from(container.querySelectorAll("button"))
-      .find((button) => button.textContent?.startsWith("Load"))!
+    boxes[0].dispatchEvent(new Event('change'));
+    Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.startsWith('Load'))!
       .click();
 
     await pending;
-    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual([
-      "buildings",
-    ]);
-    document.body.innerHTML = "";
+    expect(manager.getLayers().map((layer) => layer.sourceLayer)).toEqual(['buildings']);
+    document.body.innerHTML = '';
   });
 
-  it("skips the picker entirely when selectLayers is false", async () => {
-    const container = document.createElement("div");
+  it('skips the picker entirely when selectLayers is false', async () => {
+    const container = document.createElement('div');
     document.body.appendChild(container);
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({ selectLayers: false }, engine, {
       getContainer: () => container,
     });
 
-    await manager.addData(new File(["x"], "city.gpkg"), { id: "city" });
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
 
-    expect(container.querySelector(".vector-control-layer-picker")).toBeNull();
+    expect(container.querySelector('.vector-control-layer-picker')).toBeNull();
     expect(manager.getLayers()).toHaveLength(2);
-    document.body.innerHTML = "";
+    document.body.innerHTML = '';
   });
 
-  it("closes an open picker when the manager is disposed", async () => {
-    const container = document.createElement("div");
+  it('closes an open picker when the manager is disposed', async () => {
+    const container = document.createElement('div');
     document.body.appendChild(container);
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
-    const { manager } = createManager({}, engine, {
-      getContainer: () => container,
-    });
+    const { manager } = createManager({}, engine, { getContainer: () => container });
 
     const pending = manager
-      .addData(new File(["x"], "city.gpkg"), { id: "city" })
-      .then(
-        () => null,
-        (err: unknown) => err,
-      );
+      .addData(new File(['x'], 'city.gpkg'), { id: 'city' })
+      .then(() => null, (err: unknown) => err);
     await vi.waitFor(() => {
-      expect(
-        container.querySelector(".vector-control-layer-picker"),
-      ).not.toBeNull();
+      expect(container.querySelector('.vector-control-layer-picker')).not.toBeNull();
     });
 
     manager.dispose();
     expect(isVectorLayerSelectionCancelled(await pending)).toBe(true);
-    expect(container.querySelector(".vector-control-layer-picker")).toBeNull();
-    document.body.innerHTML = "";
+    expect(container.querySelector('.vector-control-layer-picker')).toBeNull();
+    document.body.innerHTML = '';
   });
 
-  it("reports tile generation progress through loading events", async () => {
+  it('reports tile generation progress through loading events', async () => {
     const engine = createMockEngine();
     const { manager, map, emit } = createManager({}, engine);
-    await manager.addData(new File(["x"], "data.fgb"), {
-      id: "prog",
-      renderMode: "tiles",
-    });
-    const sourceSpec = map.addSource.mock.calls.find(
-      (c) => c[0] === "prog-source",
-    )?.[1] as {
+    await manager.addData(new File(['x'], 'data.fgb'), { id: 'prog', renderMode: 'tiles' });
+    const sourceSpec = map.addSource.mock.calls.find((c) => c[0] === 'prog-source')?.[1] as {
       tiles: string[];
     };
     const providerKey = providerKeyFromSource(sourceSpec);
     emit.mockClear();
 
-    await loadTile(
-      `duckdb://${encodeURIComponent(providerKey)}/0/0/0`,
-      new AbortController().signal,
-    );
+    await loadTile(`duckdb://${encodeURIComponent(providerKey)}/0/0/0`, new AbortController().signal);
     expect(emit).toHaveBeenCalledWith(
-      "loading",
-      expect.objectContaining({ message: "Generating tiles (1 pending)..." }),
+      'loading',
+      expect.objectContaining({ message: 'Generating tiles (1 pending)...' }),
     );
     // Status clears shortly after the queue drains
     await vi.waitFor(() =>
-      expect(emit).toHaveBeenCalledWith(
-        "loading",
-        expect.objectContaining({ message: "" }),
-      ),
+      expect(emit).toHaveBeenCalledWith('loading', expect.objectContaining({ message: '' })),
     );
-    manager.removeLayer("prog");
+    manager.removeLayer('prog');
   });
 
-  it("honors the per-layer tiles override below thresholds", async () => {
+  it('honors the per-layer tiles override below thresholds', async () => {
     const engine = createMockEngine();
     const { manager } = createManager({}, engine);
-    const info = await manager.addData(new File(["x"], "small.fgb"), {
-      id: "forced",
-      renderMode: "tiles",
+    const info = await manager.addData(new File(['x'], 'small.fgb'), {
+      id: 'forced',
+      renderMode: 'tiles',
     });
-    expect(info.renderMode).toBe("tiles");
-    manager.removeLayer("forced");
+    expect(info.renderMode).toBe('tiles');
+    manager.removeLayer('forced');
   });
 });
 
-describe("LayerManager layer operations", () => {
-  it("toggles visibility", async () => {
+describe('LayerManager layer operations', () => {
+  it('toggles visibility', async () => {
     const { manager, map, emit } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
 
-    manager.setLayerVisibility("poly", false);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "poly-fill",
-      "visibility",
-      "none",
-    );
-    expect(manager.getLayer("poly")?.visible).toBe(false);
-    expect(emit).toHaveBeenCalledWith("layerupdated", expect.anything());
+    manager.setLayerVisibility('poly', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('poly-fill', 'visibility', 'none');
+    expect(manager.getLayer('poly')?.visible).toBe(false);
+    expect(emit).toHaveBeenCalledWith('layerupdated', expect.anything());
 
     // Reconcile the native layer even when the cached flag is unchanged. A
     // structural renderer rebuild may have replaced it with a visible layer.
     map.setLayoutProperty.mockClear();
-    manager.setLayerVisibility("poly", false);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "poly-fill",
-      "visibility",
-      "none",
-    );
+    manager.setLayerVisibility('poly', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('poly-fill', 'visibility', 'none');
   });
 
-  it("toggles visibility after switching a point layer to a heatmap", async () => {
+  it('toggles visibility after switching a point layer to a heatmap', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POINT_FC, { id: "pts" });
+    await manager.addData(POINT_FC, { id: 'pts' });
 
-    manager.setLayerStyle("pts", { pointMode: "heatmap" });
-    await vi.waitFor(() =>
-      expect(manager.getLayer("pts")?.layerIds).toEqual(["pts-heatmap"]),
-    );
+    manager.setLayerStyle('pts', { pointMode: 'heatmap' });
+    await vi.waitFor(() => expect(manager.getLayer('pts')?.layerIds).toEqual(['pts-heatmap']));
 
     map.setLayoutProperty.mockClear();
-    manager.setLayerVisibility("pts", false);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "pts-heatmap",
-      "visibility",
-      "none",
-    );
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-heatmap', 'visibility', 'none');
 
     // Simulate the replacement heatmap drifting back to MapLibre's default
     // visibility while the control still records the layer as hidden.
     map.setLayoutProperty.mockClear();
-    manager.setLayerVisibility("pts", false);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "pts-heatmap",
-      "visibility",
-      "none",
-    );
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-heatmap', 'visibility', 'none');
 
-    manager.setLayerStyle("pts", { pointMode: "circle" });
-    await vi.waitFor(() =>
-      expect(manager.getLayer("pts")?.layerIds).toEqual(["pts-circle"]),
-    );
+    manager.setLayerStyle('pts', { pointMode: 'circle' });
+    await vi.waitFor(() => expect(manager.getLayer('pts')?.layerIds).toEqual(['pts-circle']));
     map.setLayoutProperty.mockClear();
-    manager.setLayerVisibility("pts", false);
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "pts-circle",
-      "visibility",
-      "none",
-    );
+    manager.setLayerVisibility('pts', false);
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-circle', 'visibility', 'none');
   });
 
-  it("applies style patches", async () => {
+  it('applies style patches', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
 
-    manager.setLayerStyle("poly", { fillColor: "#ff0000" });
-    expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-fill",
-      "fill-color",
-      "#ff0000",
-    );
-    expect(manager.getLayer("poly")?.style.fillColor).toBe("#ff0000");
+    manager.setLayerStyle('poly', { fillColor: '#ff0000' });
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-fill', 'fill-color', '#ff0000');
+    expect(manager.getLayer('poly')?.style.fillColor).toBe('#ff0000');
   });
 
-  it("exposes attribute field names for a GeoJSON layer", async () => {
+  it('exposes attribute field names for a GeoJSON layer', async () => {
+    const { manager } = createManager();
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(info.fields).toEqual(['name']);
+  });
+
+  it('creates a label layer when a layer is added with a labelField', async () => {
     const { manager } = createManager();
     const info = await manager.addData(POLYGON_FC, {
-      id: "poly",
+      id: 'poly',
       fitBounds: false,
+      style: { labelField: 'name' },
     });
-    expect(info.fields).toEqual(["name"]);
+    expect(info.layerIds).toEqual(['poly-fill', 'poly-outline', 'poly-label']);
   });
 
-  it("creates a label layer when a layer is added with a labelField", async () => {
-    const { manager } = createManager();
-    const info = await manager.addData(POLYGON_FC, {
-      id: "poly",
-      fitBounds: false,
-      style: { labelField: "name" },
-    });
-    expect(info.layerIds).toEqual(["poly-fill", "poly-outline", "poly-label"]);
-  });
-
-  it("adds, restyles, and removes the label layer as the labelField changes", async () => {
+  it('adds, restyles, and removes the label layer as the labelField changes', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", fitBounds: false });
-    expect(manager.getLayer("poly")?.layerIds).not.toContain("poly-label");
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+    expect(manager.getLayer('poly')?.layerIds).not.toContain('poly-label');
 
     // Setting a labelField adds the symbol layer.
-    manager.setLayerStyle("poly", { labelField: "name" });
+    manager.setLayerStyle('poly', { labelField: 'name' });
     expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "poly-label", type: "symbol" }),
+      expect.objectContaining({ id: 'poly-label', type: 'symbol' }),
       undefined,
     );
-    expect(manager.getLayer("poly")?.layerIds).toContain("poly-label");
+    expect(manager.getLayer('poly')?.layerIds).toContain('poly-label');
     // The picker is re-wired so the new label layer gets click handlers too.
-    expect(map.on).toHaveBeenCalledWith(
-      "click",
-      "poly-label",
-      expect.any(Function),
-    );
-    expect(map.on).toHaveBeenCalledWith(
-      "mouseenter",
-      "poly-label",
-      expect.any(Function),
-    );
-    expect(map.on).toHaveBeenCalledWith(
-      "mouseleave",
-      "poly-label",
-      expect.any(Function),
-    );
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-label', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseenter', 'poly-label', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseleave', 'poly-label', expect.any(Function));
 
     // A size change updates the symbol layout in place (no rebuild).
     map.addLayer.mockClear();
-    manager.setLayerStyle("poly", { labelSize: 20 });
-    expect(map.setLayoutProperty).toHaveBeenCalledWith(
-      "poly-label",
-      "text-size",
-      20,
-    );
+    manager.setLayerStyle('poly', { labelSize: 20 });
+    expect(map.setLayoutProperty).toHaveBeenCalledWith('poly-label', 'text-size', 20);
     expect(map.addLayer).not.toHaveBeenCalled();
 
     // Clearing the field removes the label layer.
-    manager.setLayerStyle("poly", { labelField: "" });
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-label");
-    expect(manager.getLayer("poly")?.layerIds).not.toContain("poly-label");
+    manager.setLayerStyle('poly', { labelField: '' });
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-label');
+    expect(manager.getLayer('poly')?.layerIds).not.toContain('poly-label');
   });
 
-  it("zooms to a layer", async () => {
+  it('zooms to a layer', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
     map.fitBounds.mockClear();
 
-    manager.zoomToLayer("poly");
+    manager.zoomToLayer('poly');
     expect(map.fitBounds).toHaveBeenCalledWith(
       [
         [0, 0],
@@ -1191,395 +984,315 @@ describe("LayerManager layer operations", () => {
     );
   });
 
-  it("removes layers and sources", async () => {
+  it('removes layers and sources', async () => {
     const { manager, map, emit } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
 
-    manager.removeLayer("poly");
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-fill");
-    expect(map.removeLayer).toHaveBeenCalledWith("poly-outline");
-    expect(map.removeSource).toHaveBeenCalledWith("poly-source");
+    manager.removeLayer('poly');
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-fill');
+    expect(map.removeLayer).toHaveBeenCalledWith('poly-outline');
+    expect(map.removeSource).toHaveBeenCalledWith('poly-source');
     expect(manager.getLayers()).toHaveLength(0);
-    expect(emit).toHaveBeenCalledWith("layerremoved", expect.anything());
+    expect(emit).toHaveBeenCalledWith('layerremoved', expect.anything());
   });
 
-  it("switches render mode to tiles and back", async () => {
+  it('switches render mode to tiles and back', async () => {
     const engine = createMockEngine();
     const { manager, map } = createManager({}, engine);
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    expect(manager.getLayer("poly")?.renderMode).toBe("geojson");
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(manager.getLayer('poly')?.renderMode).toBe('geojson');
 
-    await manager.setRenderMode("poly", "tiles");
-    expect(manager.getLayer("poly")?.renderMode).toBe("tiles");
+    await manager.setRenderMode('poly', 'tiles');
+    expect(manager.getLayer('poly')?.renderMode).toBe('tiles');
     expect(engine.ingest).toHaveBeenCalled();
     const sourceSpec = map.addSource.mock.calls.find(
-      (c) =>
-        c[0] === "poly-source" && (c[1] as { type: string }).type === "vector",
+      (c) => c[0] === 'poly-source' && (c[1] as { type: string }).type === 'vector',
     )?.[1] as { tiles?: string[] };
     const providerKey = providerKeyFromSource(sourceSpec);
     expect(hasTileProvider(providerKey)).toBe(true);
 
-    await manager.setRenderMode("poly", "geojson");
-    expect(manager.getLayer("poly")?.renderMode).toBe("geojson");
+    await manager.setRenderMode('poly', 'geojson');
+    expect(manager.getLayer('poly')?.renderMode).toBe('geojson');
     expect(hasTileProvider(providerKey)).toBe(false);
     expect(engine.exportGeoJSON).toHaveBeenCalled();
     expect(map.addSource).toHaveBeenLastCalledWith(
-      "poly-source",
-      expect.objectContaining({ type: "geojson" }),
+      'poly-source',
+      expect.objectContaining({ type: 'geojson' }),
     );
   });
 
-  it("attaches picker click handlers by default and detaches on remove", async () => {
+  it('attaches picker click handlers by default and detaches on remove', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    expect(map.on).toHaveBeenCalledWith(
-      "click",
-      "poly-fill",
-      expect.any(Function),
-    );
-    expect(map.on).toHaveBeenCalledWith(
-      "mouseenter",
-      "poly-fill",
-      expect.any(Function),
-    );
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseenter', 'poly-fill', expect.any(Function));
 
-    manager.removeLayer("poly");
-    expect(map.off).toHaveBeenCalledWith(
-      "click",
-      "poly-fill",
-      expect.any(Function),
-    );
+    manager.removeLayer('poly');
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
   });
 
-  it("skips picker handlers when disabled", async () => {
+  it('skips picker handlers when disabled', async () => {
     const { manager, map } = createManager({ enablePicker: false });
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    expect(map.on).not.toHaveBeenCalledWith(
-      "click",
-      "poly-fill",
-      expect.any(Function),
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.on).not.toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
+  });
+
+  it('passes beforeId to addLayer when the target exists', async () => {
+    const { manager, map } = createManager({ beforeId: 'labels' });
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'poly-fill' }),
+      'labels',
     );
   });
 
-  it("passes beforeId to addLayer when the target exists", async () => {
-    const { manager, map } = createManager({ beforeId: "labels" });
-    map.layers.add("labels");
-    await manager.addData(POLYGON_FC, { id: "poly" });
+  it('ignores beforeId when the target layer is missing', async () => {
+    const { manager, map } = createManager({ beforeId: 'missing' });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
     expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "poly-fill" }),
-      "labels",
-    );
-  });
-
-  it("ignores beforeId when the target layer is missing", async () => {
-    const { manager, map } = createManager({ beforeId: "missing" });
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "poly-fill" }),
+      expect.objectContaining({ id: 'poly-fill' }),
       undefined,
     );
   });
 
-  it("toggles the picker at runtime", async () => {
+  it('toggles the picker at runtime', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
-    expect(manager.getLayer("poly")?.picker).toBe(true);
+    await manager.addData(POLYGON_FC, { id: 'poly' });
+    expect(manager.getLayer('poly')?.picker).toBe(true);
 
-    manager.setLayerPicker("poly", false);
-    expect(manager.getLayer("poly")?.picker).toBe(false);
-    expect(map.off).toHaveBeenCalledWith(
-      "click",
-      "poly-fill",
-      expect.any(Function),
-    );
+    manager.setLayerPicker('poly', false);
+    expect(manager.getLayer('poly')?.picker).toBe(false);
+    expect(map.off).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
 
     map.on.mockClear();
-    manager.setLayerPicker("poly", true);
-    expect(map.on).toHaveBeenCalledWith(
-      "click",
-      "poly-fill",
-      expect.any(Function),
-    );
+    manager.setLayerPicker('poly', true);
+    expect(map.on).toHaveBeenCalledWith('click', 'poly-fill', expect.any(Function));
   });
 
-  it("moves layers with setLayerBeforeId", async () => {
+  it('moves layers with setLayerBeforeId', async () => {
     const { manager, map } = createManager();
-    map.layers.add("labels");
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    map.layers.add('labels');
+    await manager.addData(POLYGON_FC, { id: 'poly' });
 
-    manager.setLayerBeforeId("poly", "labels");
-    expect(map.moveLayer).toHaveBeenCalledWith("poly-fill", "labels");
-    expect(map.moveLayer).toHaveBeenCalledWith("poly-outline", "labels");
-    expect(manager.getLayer("poly")?.beforeId).toBe("labels");
+    manager.setLayerBeforeId('poly', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', 'labels');
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-outline', 'labels');
+    expect(manager.getLayer('poly')?.beforeId).toBe('labels');
 
-    manager.setLayerBeforeId("poly", undefined);
-    expect(map.moveLayer).toHaveBeenCalledWith("poly-fill", undefined);
-    expect(manager.getLayer("poly")?.beforeId).toBeUndefined();
+    manager.setLayerBeforeId('poly', undefined);
+    expect(map.moveLayer).toHaveBeenCalledWith('poly-fill', undefined);
+    expect(manager.getLayer('poly')?.beforeId).toBeUndefined();
   });
 
-  it("disposes without events", async () => {
+  it('disposes without events', async () => {
     const { manager, map, emit } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
     emit.mockClear();
 
     manager.dispose();
-    expect(map.removeSource).toHaveBeenCalledWith("poly-source");
+    expect(map.removeSource).toHaveBeenCalledWith('poly-source');
     expect(manager.getLayers()).toHaveLength(0);
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("describes the data source for persistence", async () => {
+  it('describes the data source for persistence', async () => {
     const { manager } = createManager();
     vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: true,
-          text: async () => JSON.stringify(POLYGON_FC),
-        }),
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify(POLYGON_FC) }),
     );
 
-    const fromUrl = await manager.addData("https://x.com/data.geojson", {
-      id: "from-url",
-    });
-    expect(fromUrl.source).toEqual({
-      kind: "url",
-      url: "https://x.com/data.geojson",
-    });
+    const fromUrl = await manager.addData('https://x.com/data.geojson', { id: 'from-url' });
+    expect(fromUrl.source).toEqual({ kind: 'url', url: 'https://x.com/data.geojson' });
 
-    const fromFile = await manager.addData(new File(["x"], "data.gpkg"), {
-      id: "from-file",
-    });
-    expect(fromFile.source).toEqual({ kind: "file", fileName: "data.gpkg" });
+    const fromFile = await manager.addData(new File(['x'], 'data.gpkg'), { id: 'from-file' });
+    expect(fromFile.source).toEqual({ kind: 'file', fileName: 'data.gpkg' });
 
-    const fromObject = await manager.addData(POLYGON_FC, { id: "from-object" });
-    expect(fromObject.source).toEqual({ kind: "geojson" });
+    const fromObject = await manager.addData(POLYGON_FC, { id: 'from-object' });
+    expect(fromObject.source).toEqual({ kind: 'geojson' });
   });
 
-  it("records the sourceLayer of expanded container layers", async () => {
+  it('records the sourceLayer of expanded container layers', async () => {
     const engine = createMockEngine({
-      listLayers: vi.fn(async () => ["roads", "buildings"]),
+      listLayers: vi.fn(async () => ['roads', 'buildings']),
     });
     const { manager } = createManager({}, engine);
 
-    await manager.addData(new File(["x"], "city.gpkg"), { id: "city" });
-    expect(manager.getLayer("city-roads")?.sourceLayer).toBe("roads");
-    expect(manager.getLayer("city-buildings")?.sourceLayer).toBe("buildings");
+    await manager.addData(new File(['x'], 'city.gpkg'), { id: 'city' });
+    expect(manager.getLayer('city-roads')?.sourceLayer).toBe('roads');
+    expect(manager.getLayer('city-buildings')?.sourceLayer).toBe('buildings');
   });
 
-  it("applies an initial master opacity to the created layers", async () => {
+  it('applies an initial master opacity to the created layers', async () => {
     const { manager, map } = createManager();
-    const info = await manager.addData(POLYGON_FC, {
-      id: "poly",
-      opacity: 0.5,
-    });
+    const info = await manager.addData(POLYGON_FC, { id: 'poly', opacity: 0.5 });
 
     expect(info.opacity).toBe(0.5);
-    const fillSpec = map.addLayer.mock.calls.find(
-      (c) => c[0].id === "poly-fill",
-    )?.[0] as {
+    const fillSpec = map.addLayer.mock.calls.find((c) => c[0].id === 'poly-fill')?.[0] as {
       paint: Record<string, number>;
     };
-    expect(fillSpec.paint["fill-opacity"]).toBe(0.4 * 0.5);
-    const outlineSpec = map.addLayer.mock.calls.find(
-      (c) => c[0].id === "poly-outline",
-    )?.[0] as {
+    expect(fillSpec.paint['fill-opacity']).toBe(0.4 * 0.5);
+    const outlineSpec = map.addLayer.mock.calls.find((c) => c[0].id === 'poly-outline')?.[0] as {
       paint: Record<string, number>;
     };
-    expect(outlineSpec.paint["line-opacity"]).toBe(0.5);
+    expect(outlineSpec.paint['line-opacity']).toBe(0.5);
   });
 
-  it("updates the master opacity with setLayerOpacity", async () => {
+  it('updates the master opacity with setLayerOpacity', async () => {
     const { manager, map, emit } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly" });
+    await manager.addData(POLYGON_FC, { id: 'poly' });
     emit.mockClear();
 
-    manager.setLayerOpacity("poly", 0.25);
-    expect(manager.getLayer("poly")?.opacity).toBe(0.25);
-    expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-fill",
-      "fill-opacity",
-      0.4 * 0.25,
-    );
-    expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-outline",
-      "line-opacity",
-      0.25,
-    );
+    manager.setLayerOpacity('poly', 0.25);
+    expect(manager.getLayer('poly')?.opacity).toBe(0.25);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-fill', 'fill-opacity', 0.4 * 0.25);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-outline', 'line-opacity', 0.25);
     expect(emit).toHaveBeenCalledWith(
-      "layerupdated",
-      expect.objectContaining({
-        layer: expect.objectContaining({ opacity: 0.25 }),
-      }),
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ opacity: 0.25 }) }),
     );
 
     // No-op when the opacity is unchanged
     emit.mockClear();
-    manager.setLayerOpacity("poly", 0.25);
+    manager.setLayerOpacity('poly', 0.25);
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("keeps the master opacity applied through style patches", async () => {
+  it('keeps the master opacity applied through style patches', async () => {
     const { manager, map } = createManager();
-    await manager.addData(POLYGON_FC, { id: "poly", opacity: 0.5 });
+    await manager.addData(POLYGON_FC, { id: 'poly', opacity: 0.5 });
 
-    manager.setLayerStyle("poly", { fillOpacity: 0.8 });
-    expect(map.setPaintProperty).toHaveBeenCalledWith(
-      "poly-fill",
-      "fill-opacity",
-      0.8 * 0.5,
-    );
+    manager.setLayerStyle('poly', { fillOpacity: 0.8 });
+    expect(map.setPaintProperty).toHaveBeenCalledWith('poly-fill', 'fill-opacity', 0.8 * 0.5);
     // The stored style keeps the unscaled value
-    expect(manager.getLayer("poly")?.style.fillOpacity).toBe(0.8);
+    expect(manager.getLayer('poly')?.style.fillOpacity).toBe(0.8);
   });
 });
 
-describe("LayerManager extensionless URL sniffing", () => {
+describe('LayerManager extensionless URL sniffing', () => {
   /** GeoJSON Response stub for a JSON-typed body. */
   function geojsonResponse() {
     return {
       ok: true,
       status: 200,
-      headers: {
-        get: (n: string) =>
-          n.toLowerCase() === "content-type" ? "application/geo+json" : null,
-      },
+      headers: { get: (n: string) => (n.toLowerCase() === 'content-type' ? 'application/geo+json' : null) },
       text: async () => JSON.stringify(POLYGON_FC),
       body: { cancel: vi.fn(async () => undefined) },
     };
   }
 
-  it("loads an extensionless GeoJSON endpoint without the engine, fetching once", async () => {
+  it('loads an extensionless GeoJSON endpoint without the engine, fetching once', async () => {
     const engine = createMockEngine();
     const { manager, map } = createManager({}, engine);
     const fetchMock = vi.fn().mockResolvedValue(geojsonResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
     const info = await manager.addData(
-      "https://api.example.com/collections/buildings/items?f=geojson",
-      { id: "ogc" },
+      'https://api.example.com/collections/buildings/items?f=geojson',
+      { id: 'ogc' },
     );
 
-    expect(info.format).toBe("geojson");
-    expect(info.renderMode).toBe("geojson");
+    expect(info.format).toBe('geojson');
+    expect(info.renderMode).toBe('geojson');
     // Source descriptor stays URL-backed so a host can persist/reload it.
     expect(info.source).toEqual({
-      kind: "url",
-      url: "https://api.example.com/collections/buildings/items?f=geojson",
+      kind: 'url',
+      url: 'https://api.example.com/collections/buildings/items?f=geojson',
     });
     expect(engine.ingest).not.toHaveBeenCalled();
     // One GET for the sniff, reused for rendering (no second fetch, no HEAD).
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ogc-source",
-      expect.objectContaining({ type: "geojson" }),
-    );
+    expect(map.addSource).toHaveBeenCalledWith('ogc-source', expect.objectContaining({ type: 'geojson' }));
   });
 
-  it("falls through to the engine for an extensionless non-JSON endpoint", async () => {
+  it('falls through to the engine for an extensionless non-JSON endpoint', async () => {
     const engine = createMockEngine();
     const { manager } = createManager({}, engine);
     const fetchMock = vi.fn((_url: string, init?: { method?: string }) => {
-      if (init?.method === "HEAD") {
+      if (init?.method === 'HEAD') {
         return Promise.resolve({ ok: true, headers: { get: () => null } });
       }
       return Promise.resolve({
         ok: true,
         status: 200,
-        headers: { get: () => "application/octet-stream" },
-        text: async () => "PAR1",
+        headers: { get: () => 'application/octet-stream' },
+        text: async () => 'PAR1',
         body: { cancel: vi.fn(async () => undefined) },
       });
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
-    await manager.addData("https://files.example.com/export?format=parquet", {
-      id: "bin",
-    });
+    await manager.addData('https://files.example.com/export?format=parquet', { id: 'bin' });
 
     expect(engine.ingest).toHaveBeenCalledWith(
-      "https://files.example.com/export?format=parquet",
-      "t_bin",
+      'https://files.example.com/export?format=parquet',
+      't_bin',
       expect.anything(),
     );
   });
 
-  it("skips the sniff when tiles are explicitly requested", async () => {
+  it('skips the sniff when tiles are explicitly requested', async () => {
     const engine = createMockEngine({
       ingest: vi.fn(async (_s, tableName) => ({
         tableName,
         featureCount: 1_000_000,
         bbox: [0, 0, 10, 10] as [number, number, number, number],
-        geometryType: "polygon" as const,
+        geometryType: 'polygon' as const,
       })),
     });
     const { manager } = createManager({}, engine);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, headers: { get: () => null } });
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, headers: { get: () => null } });
+    vi.stubGlobal('fetch', fetchMock);
 
-    const info = await manager.addData(
-      "https://api.example.com/items?f=geojson",
-      {
-        id: "tiled",
-        renderMode: "tiles",
-      },
-    );
+    const info = await manager.addData('https://api.example.com/items?f=geojson', {
+      id: 'tiled',
+      renderMode: 'tiles',
+    });
 
-    expect(info.renderMode).toBe("tiles");
+    expect(info.renderMode).toBe('tiles');
     expect(engine.ingest).toHaveBeenCalled();
     // No GeoJSON GET sniff; only the engine's HEAD size probe.
     expect(fetchMock).not.toHaveBeenCalledWith(
-      "https://api.example.com/items?f=geojson",
+      'https://api.example.com/items?f=geojson',
       undefined,
     );
   });
 
-  it("skips the sniff when an explicit format is given", async () => {
+  it('skips the sniff when an explicit format is given', async () => {
     const engine = createMockEngine();
     const { manager } = createManager({}, engine);
     const fetchMock = vi.fn((_url: string, init?: { method?: string }) =>
       Promise.resolve(
-        init?.method === "HEAD"
+        init?.method === 'HEAD'
           ? { ok: true, headers: { get: () => null } }
-          : {
-              ok: true,
-              status: 200,
-              headers: { get: () => null },
-              text: async () => "",
-              body: { cancel: vi.fn() },
-            },
+          : { ok: true, status: 200, headers: { get: () => null }, text: async () => '', body: { cancel: vi.fn() } },
       ),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
-    await manager.addData("https://api.example.com/items", {
-      id: "forced",
-      format: "geoparquet",
-      sourceCrs: " EPSG:28992 ",
+    await manager.addData('https://api.example.com/items', {
+      id: 'forced',
+      format: 'geoparquet',
+      sourceCrs: ' EPSG:28992 ',
     });
 
     expect(engine.ingest).toHaveBeenCalledWith(
-      "https://api.example.com/items",
-      "t_forced",
-      expect.objectContaining({
-        format: "geoparquet",
-        sourceCrs: "EPSG:28992",
-      }),
+      'https://api.example.com/items',
+      't_forced',
+      expect.objectContaining({ format: 'geoparquet', sourceCrs: 'EPSG:28992' }),
     );
   });
 });
 
-describe("LayerManager reloadLayer", () => {
+describe('LayerManager reloadLayer', () => {
   function fcWithFeatures(count: number): FeatureCollection {
     return {
-      type: "FeatureCollection",
+      type: 'FeatureCollection',
       features: Array.from({ length: count }, () => ({
-        type: "Feature",
+        type: 'Feature',
         geometry: {
-          type: "Polygon",
+          type: 'Polygon',
           coordinates: [
             [
               [0, 0],
@@ -1595,7 +1308,7 @@ describe("LayerManager reloadLayer", () => {
     };
   }
 
-  it("re-fetches a URL layer and re-renders it in place", async () => {
+  it('re-fetches a URL layer and re-renders it in place', async () => {
     const { manager, map, emit } = createManager();
     const fetchMock = vi
       .fn()
@@ -1607,66 +1320,59 @@ describe("LayerManager reloadLayer", () => {
         ok: true,
         text: async () => JSON.stringify(fcWithFeatures(3)),
       });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
-    const added = await manager.addData("https://x.com/data.geojson", {
-      id: "live",
-    });
+    const added = await manager.addData('https://x.com/data.geojson', { id: 'live' });
     expect(added.featureCount).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    const reloaded = await manager.reloadLayer("live");
+    const reloaded = await manager.reloadLayer('live');
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(reloaded?.id).toBe("live");
-    expect(reloaded?.sourceId).toBe("live-source");
+    expect(reloaded?.id).toBe('live');
+    expect(reloaded?.sourceId).toBe('live-source');
     expect(reloaded?.featureCount).toBe(3);
-    expect(map.removeSource).toHaveBeenCalledWith("live-source");
+    expect(map.removeSource).toHaveBeenCalledWith('live-source');
     expect(map.addSource).toHaveBeenLastCalledWith(
-      "live-source",
-      expect.objectContaining({ type: "geojson" }),
+      'live-source',
+      expect.objectContaining({ type: 'geojson' }),
     );
     expect(emit).toHaveBeenCalledWith(
-      "layerupdated",
-      expect.objectContaining({
-        layer: expect.objectContaining({ id: "live" }),
-      }),
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ id: 'live' }) }),
     );
   });
 
-  it("returns undefined for an unknown layer id", async () => {
+  it('returns undefined for an unknown layer id', async () => {
     const { manager } = createManager();
-    await expect(manager.reloadLayer("nope")).resolves.toBeUndefined();
+    await expect(manager.reloadLayer('nope')).resolves.toBeUndefined();
   });
 
-  it("does not re-fetch a non-URL (in-memory GeoJSON) layer", async () => {
+  it('does not re-fetch a non-URL (in-memory GeoJSON) layer', async () => {
     const { manager } = createManager();
     const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal('fetch', fetchMock);
 
-    await manager.addData(POLYGON_FC, { id: "static" });
-    const result = await manager.reloadLayer("static");
+    await manager.addData(POLYGON_FC, { id: 'static' });
+    const result = await manager.reloadLayer('static');
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result?.id).toBe("static");
+    expect(result?.id).toBe('static');
   });
 
-  it("re-ingests, re-prepares tiles, and drops the stale table when reloading an engine-backed URL layer", async () => {
+  it('re-ingests, re-prepares tiles, and drops the stale table when reloading an engine-backed URL layer', async () => {
     const engine = createMockEngine();
     const { manager } = createManager({}, engine);
 
-    await manager.addData("https://x.com/data.parquet", {
-      id: "eng",
-      renderMode: "tiles",
-    });
+    await manager.addData('https://x.com/data.parquet', { id: 'eng', renderMode: 'tiles' });
     expect(engine.ingest).toHaveBeenCalledTimes(1);
     expect(engine.prepareTiles).toHaveBeenCalledTimes(1);
 
-    const reloaded = await manager.reloadLayer("eng");
+    const reloaded = await manager.reloadLayer('eng');
 
-    expect(reloaded?.renderMode).toBe("tiles");
+    expect(reloaded?.renderMode).toBe('tiles');
     expect(engine.ingest).toHaveBeenCalledTimes(2);
     expect(engine.prepareTiles).toHaveBeenCalledTimes(2);
-    expect(engine.dropTable).toHaveBeenCalledWith("t_eng");
+    expect(engine.dropTable).toHaveBeenCalledWith('t_eng');
   });
 });

@@ -1,5 +1,5 @@
-import type { FeatureCollection } from "geojson";
-import type { IControl, Map as MapLibreMap } from "maplibre-gl";
+import type { FeatureCollection } from 'geojson';
+import type { IControl, Map as MapLibreMap } from 'maplibre-gl';
 import type {
   RenderMode,
   VectorControlEvent,
@@ -11,35 +11,29 @@ import type {
   VectorLayerOptions,
   VectorLayerStyle,
   VectorState,
-} from "./types";
-import { LayerManager } from "./LayerManager";
-import type { IEngine } from "../engine/types";
-import { createEngine } from "../engine/DuckDBEngine";
-import { renderPanelUI } from "../ui/panel";
+} from './types';
+import { LayerManager } from './LayerManager';
+import type { IEngine } from '../engine/types';
+import { createEngine } from '../engine/DuckDBEngine';
+import { renderPanelUI } from '../ui/panel';
 
 /**
  * Default options for the VectorControl
  */
 const DEFAULT_OPTIONS: Required<
-  Pick<
-    VectorControlOptions,
-    "collapsed" | "position" | "title" | "panelWidth" | "className"
-  >
+  Pick<VectorControlOptions, 'collapsed' | 'position' | 'title' | 'panelWidth' | 'className'>
 > = {
   collapsed: true,
-  position: "top-right",
-  title: "Vector Data",
+  position: 'top-right',
+  title: 'Vector Data',
   panelWidth: 320,
-  className: "",
+  className: '',
 };
 
 /**
  * Event handlers map type
  */
-type EventHandlersMap = globalThis.Map<
-  VectorControlEvent,
-  Set<VectorControlEventHandler>
->;
+type EventHandlersMap = globalThis.Map<VectorControlEvent, Set<VectorControlEventHandler>>;
 
 /**
  * A MapLibre GL control for visualizing vector data in many formats
@@ -71,8 +65,6 @@ export class VectorControl implements IControl {
   private _enginePromise?: Promise<IEngine>;
   private _disposePanelUI?: () => void;
   private _styleLoadHandler: (() => void) | null = null;
-  private _styleRestorePromise: Promise<void> = Promise.resolve();
-  private _removed = false;
 
   // Panel positioning handlers
   private _resizeHandler: (() => void) | null = null;
@@ -109,7 +101,6 @@ export class VectorControl implements IControl {
    * @returns The control's container element
    */
   onAdd(map: MapLibreMap): HTMLElement {
-    this._removed = false;
     this._map = map;
     this._mapContainer = map.getContainer();
     this._container = this._createContainer();
@@ -122,18 +113,12 @@ export class VectorControl implements IControl {
       getEngine: () => this._getEngine(),
     });
     this._styleLoadHandler = () => {
-      this._styleRestorePromise = this._styleRestorePromise.then(async () => {
-        if (this._removed) return;
-        try {
-          await this._layerManager?.restoreLayersAfterStyleChange();
-        } catch (error: unknown) {
-          const normalized =
-            error instanceof Error ? error : new Error(String(error));
-          this._emit("error", { error: normalized });
-        }
+      void this._layerManager?.restoreLayersAfterStyleChange().catch((error: unknown) => {
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        this._emit('error', { error: normalized });
       });
     };
-    map.on("style.load", this._styleLoadHandler);
+    map.on('style.load', this._styleLoadHandler);
 
     // Append panel to map container for independent positioning (avoids overlap with other controls)
     this._mapContainer.appendChild(this._panel);
@@ -157,7 +142,7 @@ export class VectorControl implements IControl {
 
     // Set initial panel state
     if (!this._state.collapsed) {
-      this._panel.classList.add("expanded");
+      this._panel.classList.add('expanded');
       // Update position after control is added to DOM
       requestAnimationFrame(() => {
         this._updatePanelPosition();
@@ -172,41 +157,37 @@ export class VectorControl implements IControl {
    * Implements the IControl interface.
    */
   onRemove(): void {
-    this._removed = true;
     // Remove event listeners
     if (this._resizeHandler) {
-      window.removeEventListener("resize", this._resizeHandler);
+      window.removeEventListener('resize', this._resizeHandler);
       this._resizeHandler = null;
     }
     if (this._mapResizeHandler && this._map) {
-      this._map.off("resize", this._mapResizeHandler);
+      this._map.off('resize', this._mapResizeHandler);
       this._mapResizeHandler = null;
     }
     if (this._clickOutsideHandler) {
-      document.removeEventListener("click", this._clickOutsideHandler);
+      document.removeEventListener('click', this._clickOutsideHandler);
       this._clickOutsideHandler = null;
     }
     // Detach any in-flight resize drag listeners.
     this._resizeDragCleanup?.();
     if (this._styleLoadHandler && this._map) {
-      this._map.off("style.load", this._styleLoadHandler);
+      this._map.off('style.load', this._styleLoadHandler);
       this._styleLoadHandler = null;
     }
 
     // Tear down panel UI and layers
     this._disposePanelUI?.();
     this._disposePanelUI = undefined;
-    const layerManager = this._layerManager;
+    this._layerManager?.dispose();
     this._layerManager = undefined;
 
     // Terminate the DuckDB worker if it was loaded
-    const enginePromise = this._enginePromise;
-    this._enginePromise = undefined;
-    void this._styleRestorePromise.finally(() => {
-      layerManager?.dispose();
-      if (enginePromise)
-        enginePromise.then((engine) => engine.dispose()).catch(() => undefined);
-    });
+    if (this._enginePromise) {
+      this._enginePromise.then((engine) => engine.dispose()).catch(() => undefined);
+      this._enginePromise = undefined;
+    }
 
     // Remove panel from map container
     this._panel?.parentNode?.removeChild(this._panel);
@@ -293,14 +274,8 @@ export class VectorControl implements IControl {
    * @param property - An attribute field name.
    * @returns The values, or null when the layer or field is unavailable.
    */
-  getLayerPropertyValues(
-    id: string,
-    property: string,
-  ): Promise<unknown[] | null> {
-    return (
-      this._layerManager?.getLayerPropertyValues(id, property) ??
-      Promise.resolve(null)
-    );
+  getLayerPropertyValues(id: string, property: string): Promise<unknown[] | null> {
+    return this._layerManager?.getLayerPropertyValues(id, property) ?? Promise.resolve(null);
   }
 
   /**
@@ -410,7 +385,7 @@ export class VectorControl implements IControl {
    */
   setState(newState: Partial<VectorState>): void {
     this._state = { ...this._state, ...newState };
-    this._emit("statechange");
+    this._emit('statechange');
   }
 
   /**
@@ -421,16 +396,16 @@ export class VectorControl implements IControl {
 
     if (this._panel) {
       if (this._state.collapsed) {
-        this._panel.classList.remove("expanded");
-        this._emit("collapse");
+        this._panel.classList.remove('expanded');
+        this._emit('collapse');
       } else {
-        this._panel.classList.add("expanded");
+        this._panel.classList.add('expanded');
         this._updatePanelPosition();
-        this._emit("expand");
+        this._emit('expand');
       }
     }
 
-    this._emit("statechange");
+    this._emit('statechange');
   }
 
   /**
@@ -507,9 +482,7 @@ export class VectorControl implements IControl {
    */
   private _manager(): LayerManager {
     if (!this._layerManager) {
-      throw new Error(
-        "VectorControl must be added to a map before loading data",
-      );
+      throw new Error('VectorControl must be added to a map before loading data');
     }
     return this._layerManager;
   }
@@ -520,7 +493,7 @@ export class VectorControl implements IControl {
   private _getEngine(): Promise<IEngine> {
     if (!this._enginePromise) {
       this._enginePromise = createEngine({
-        onProgress: (message) => this._emit("loading", { message }),
+        onProgress: (message) => this._emit('loading', { message }),
         baseUrl: this._options.duckdbWasmBaseUrl,
         sqlJsBaseUrl: this._options.sqlJsBaseUrl,
         spatialExtensionPath: this._options.spatialExtensionPath,
@@ -542,24 +515,16 @@ export class VectorControl implements IControl {
    */
   private _emit(
     event: VectorControlEvent,
-    extra?: Pick<VectorEventPayload, "layer" | "error" | "message">,
+    extra?: Pick<VectorEventPayload, 'layer' | 'error' | 'message'>,
   ): void {
     const handlers = this._eventHandlers.get(event);
     if (handlers) {
-      const eventData: VectorEventPayload = {
-        type: event,
-        state: this.getState(),
-        ...extra,
-      };
+      const eventData: VectorEventPayload = { type: event, state: this.getState(), ...extra };
       handlers.forEach((handler) => handler(eventData));
     }
     // Layer events also imply a state change for state subscribers.
-    if (
-      event === "layeradded" ||
-      event === "layerremoved" ||
-      event === "layerupdated"
-    ) {
-      this._emit("statechange");
+    if (event === 'layeradded' || event === 'layerremoved' || event === 'layerupdated') {
+      this._emit('statechange');
     }
   }
 
@@ -570,16 +535,16 @@ export class VectorControl implements IControl {
    * @returns The container element
    */
   private _createContainer(): HTMLElement {
-    const container = document.createElement("div");
+    const container = document.createElement('div');
     container.className = `maplibregl-ctrl maplibregl-ctrl-group vector-control${
-      this._options.className ? ` ${this._options.className}` : ""
+      this._options.className ? ` ${this._options.className}` : ''
     }`;
 
     // Create toggle button (29x29 to match navigation control)
-    const toggleBtn = document.createElement("button");
-    toggleBtn.className = "vector-control-toggle";
-    toggleBtn.type = "button";
-    toggleBtn.setAttribute("aria-label", this._options.title);
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'vector-control-toggle';
+    toggleBtn.type = 'button';
+    toggleBtn.setAttribute('aria-label', this._options.title);
     // Vector geometry icon: a triangle of edges with vertex nodes
     // (points, lines, and a polygon in one glyph)
     toggleBtn.innerHTML = `
@@ -594,7 +559,7 @@ export class VectorControl implements IControl {
         </svg>
       </span>
     `;
-    toggleBtn.addEventListener("click", () => this.toggle());
+    toggleBtn.addEventListener('click', () => this.toggle());
 
     container.appendChild(toggleBtn);
 
@@ -608,31 +573,31 @@ export class VectorControl implements IControl {
    * @returns The panel element
    */
   private _createPanel(): HTMLElement {
-    const panel = document.createElement("div");
-    panel.className = "vector-control-panel";
+    const panel = document.createElement('div');
+    panel.className = 'vector-control-panel';
     panel.style.width = `${this._options.panelWidth}px`;
 
     // Create header with title and close button
-    const header = document.createElement("div");
-    header.className = "vector-control-header";
+    const header = document.createElement('div');
+    header.className = 'vector-control-header';
 
-    const title = document.createElement("span");
-    title.className = "vector-control-title";
+    const title = document.createElement('span');
+    title.className = 'vector-control-title';
     title.textContent = this._options.title;
 
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "vector-control-close";
-    closeBtn.type = "button";
-    closeBtn.setAttribute("aria-label", "Close panel");
-    closeBtn.innerHTML = "&times;";
-    closeBtn.addEventListener("click", () => this.collapse());
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'vector-control-close';
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', 'Close panel');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => this.collapse());
 
     header.appendChild(title);
     header.appendChild(closeBtn);
 
     // Create content area (filled by the panel UI)
-    const content = document.createElement("div");
-    content.className = "vector-control-content";
+    const content = document.createElement('div');
+    content.className = 'vector-control-content';
     this._content = content;
 
     panel.appendChild(header);
@@ -654,11 +619,11 @@ export class VectorControl implements IControl {
    * @param panel - The panel element to attach handles to
    */
   private _addResizeHandles(panel: HTMLElement): void {
-    for (const side of ["left", "right"] as const) {
-      const handle = document.createElement("div");
+    for (const side of ['left', 'right'] as const) {
+      const handle = document.createElement('div');
       handle.className = `vector-control-resize-handle vector-control-resize-${side}`;
-      handle.setAttribute("aria-hidden", "true");
-      handle.addEventListener("pointerdown", (event) =>
+      handle.setAttribute('aria-hidden', 'true');
+      handle.addEventListener('pointerdown', (event) =>
         this._beginResize(event, side, panel, handle),
       );
       panel.appendChild(handle);
@@ -681,7 +646,7 @@ export class VectorControl implements IControl {
    */
   private _beginResize(
     event: PointerEvent,
-    side: "left" | "right",
+    side: 'left' | 'right',
     panel: HTMLElement,
     handle: HTMLElement,
   ): void {
@@ -703,51 +668,33 @@ export class VectorControl implements IControl {
     const EDGE_MARGIN = 10;
     // Clamp the preferred minimums to what the map can actually hold, so a
     // small map container never forces the panel past its edges.
-    const minWidth = Math.min(
-      240,
-      Math.max(120, mapRect.width - 2 * EDGE_MARGIN),
-    );
-    const minHeight = Math.min(
-      160,
-      Math.max(120, mapRect.height - 2 * EDGE_MARGIN),
-    );
+    const minWidth = Math.min(240, Math.max(120, mapRect.width - 2 * EDGE_MARGIN));
+    const minHeight = Math.min(160, Math.max(120, mapRect.height - 2 * EDGE_MARGIN));
 
     // Pin the panel to its current rect so the size grows from the dragged
     // corner regardless of the original anchor, and drop the CSS max-size
     // caps for the duration of the drag.
     panel.style.left = `${startLeft}px`;
     panel.style.top = `${startTop - mapRect.top}px`;
-    panel.style.right = "";
-    panel.style.bottom = "";
-    panel.style.maxWidth = "none";
-    panel.style.maxHeight = "none";
+    panel.style.right = '';
+    panel.style.bottom = '';
+    panel.style.maxWidth = 'none';
+    panel.style.maxHeight = 'none';
 
     const onMove = (moveEvent: PointerEvent) => {
       const dx = moveEvent.clientX - startX;
       const dy = moveEvent.clientY - startY;
 
-      const maxHeight = Math.max(
-        minHeight,
-        mapRect.bottom - startTop - EDGE_MARGIN,
-      );
-      const nextHeight = Math.max(
-        minHeight,
-        Math.min(startHeight + dy, maxHeight),
-      );
+      const maxHeight = Math.max(minHeight, mapRect.bottom - startTop - EDGE_MARGIN);
+      const nextHeight = Math.max(minHeight, Math.min(startHeight + dy, maxHeight));
 
       let nextWidth: number;
       let nextLeft = startLeft;
-      if (side === "right") {
-        const maxWidth = Math.max(
-          minWidth,
-          mapRect.right - rect.left - EDGE_MARGIN,
-        );
+      if (side === 'right') {
+        const maxWidth = Math.max(minWidth, mapRect.right - rect.left - EDGE_MARGIN);
         nextWidth = Math.max(minWidth, Math.min(startWidth + dx, maxWidth));
       } else {
-        const maxWidth = Math.max(
-          minWidth,
-          startRight - mapRect.left - EDGE_MARGIN,
-        );
+        const maxWidth = Math.max(minWidth, startRight - mapRect.left - EDGE_MARGIN);
         nextWidth = Math.max(minWidth, Math.min(startWidth - dx, maxWidth));
         // Hold the right edge fixed while the left edge follows the drag.
         nextLeft = startLeft + (startWidth - nextWidth);
@@ -762,16 +709,16 @@ export class VectorControl implements IControl {
 
     const cleanup = () => {
       handle.releasePointerCapture?.(event.pointerId);
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", cleanup);
-      handle.removeEventListener("pointercancel", cleanup);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', cleanup);
+      handle.removeEventListener('pointercancel', cleanup);
       this._resizeDragCleanup = null;
     };
 
     handle.setPointerCapture?.(event.pointerId);
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", cleanup);
-    handle.addEventListener("pointercancel", cleanup);
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', cleanup);
+    handle.addEventListener('pointercancel', cleanup);
     this._resizeDragCleanup = cleanup;
   }
 
@@ -797,7 +744,7 @@ export class VectorControl implements IControl {
           this.collapse();
         }
       };
-      document.addEventListener("click", this._clickOutsideHandler);
+      document.addEventListener('click', this._clickOutsideHandler);
     }
 
     // Update panel position on window resize
@@ -806,7 +753,7 @@ export class VectorControl implements IControl {
         this._updatePanelPosition();
       }
     };
-    window.addEventListener("resize", this._resizeHandler);
+    window.addEventListener('resize', this._resizeHandler);
 
     // Update panel position on map resize (e.g., sidebar toggle)
     this._mapResizeHandler = () => {
@@ -814,7 +761,7 @@ export class VectorControl implements IControl {
         this._updatePanelPosition();
       }
     };
-    this._map?.on("resize", this._mapResizeHandler);
+    this._map?.on('resize', this._mapResizeHandler);
   }
 
   /**
@@ -822,24 +769,16 @@ export class VectorControl implements IControl {
    *
    * @returns The position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
    */
-  private _getControlPosition():
-    | "top-left"
-    | "top-right"
-    | "bottom-left"
-    | "bottom-right" {
+  private _getControlPosition(): 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' {
     const parent = this._container?.parentElement;
-    if (!parent) return "top-right"; // Default
+    if (!parent) return 'top-right'; // Default
 
-    if (parent.classList.contains("maplibregl-ctrl-top-left"))
-      return "top-left";
-    if (parent.classList.contains("maplibregl-ctrl-top-right"))
-      return "top-right";
-    if (parent.classList.contains("maplibregl-ctrl-bottom-left"))
-      return "bottom-left";
-    if (parent.classList.contains("maplibregl-ctrl-bottom-right"))
-      return "bottom-right";
+    if (parent.classList.contains('maplibregl-ctrl-top-left')) return 'top-left';
+    if (parent.classList.contains('maplibregl-ctrl-top-right')) return 'top-right';
+    if (parent.classList.contains('maplibregl-ctrl-bottom-left')) return 'bottom-left';
+    if (parent.classList.contains('maplibregl-ctrl-bottom-right')) return 'bottom-right';
 
-    return "top-right"; // Default
+    return 'top-right'; // Default
   }
 
   /**
@@ -850,7 +789,7 @@ export class VectorControl implements IControl {
     if (!this._container || !this._panel || !this._mapContainer) return;
 
     // Get the toggle button (first child of container)
-    const button = this._container.querySelector(".vector-control-toggle");
+    const button = this._container.querySelector('.vector-control-toggle');
     if (!button) return;
 
     const buttonRect = button.getBoundingClientRect();
@@ -866,31 +805,31 @@ export class VectorControl implements IControl {
     const panelGap = 5; // Gap between button and panel
 
     // Reset all positioning
-    this._panel.style.top = "";
-    this._panel.style.bottom = "";
-    this._panel.style.left = "";
-    this._panel.style.right = "";
+    this._panel.style.top = '';
+    this._panel.style.bottom = '';
+    this._panel.style.left = '';
+    this._panel.style.right = '';
 
     switch (position) {
-      case "top-left":
+      case 'top-left':
         // Panel expands down and to the right
         this._panel.style.top = `${buttonTop + buttonRect.height + panelGap}px`;
         this._panel.style.left = `${buttonLeft}px`;
         break;
 
-      case "top-right":
+      case 'top-right':
         // Panel expands down and to the left
         this._panel.style.top = `${buttonTop + buttonRect.height + panelGap}px`;
         this._panel.style.right = `${buttonRight}px`;
         break;
 
-      case "bottom-left":
+      case 'bottom-left':
         // Panel expands up and to the right
         this._panel.style.bottom = `${buttonBottom + buttonRect.height + panelGap}px`;
         this._panel.style.left = `${buttonLeft}px`;
         break;
 
-      case "bottom-right":
+      case 'bottom-right':
         // Panel expands up and to the left
         this._panel.style.bottom = `${buttonBottom + buttonRect.height + panelGap}px`;
         this._panel.style.right = `${buttonRight}px`;
@@ -901,9 +840,7 @@ export class VectorControl implements IControl {
     // overflowing on small screens.
     const edgeMargin = 10;
     const occupied =
-      (position.startsWith("top") ? buttonTop : buttonBottom) +
-      buttonRect.height +
-      panelGap;
+      (position.startsWith('top') ? buttonTop : buttonBottom) + buttonRect.height + panelGap;
     const available = mapRect.height - occupied - edgeMargin;
     this._panel.style.maxHeight = `${Math.max(120, available)}px`;
     const availableWidth = Math.max(120, mapRect.width - 2 * edgeMargin);
