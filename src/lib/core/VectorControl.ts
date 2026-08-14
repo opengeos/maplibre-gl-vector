@@ -64,6 +64,9 @@ export class VectorControl implements IControl {
   private _layerManager?: LayerManager;
   private _enginePromise?: Promise<IEngine>;
   private _disposePanelUI?: () => void;
+  private _styleLoadHandler: (() => void) | null = null;
+  private _styleRestorePromise: Promise<void> = Promise.resolve();
+  private _removed = false;
 
   // Panel positioning handlers
   private _resizeHandler: (() => void) | null = null;
@@ -100,6 +103,7 @@ export class VectorControl implements IControl {
    * @returns The control's container element
    */
   onAdd(map: MapLibreMap): HTMLElement {
+    this._removed = false;
     this._map = map;
     this._mapContainer = map.getContainer();
     this._container = this._createContainer();
@@ -111,6 +115,18 @@ export class VectorControl implements IControl {
       emit: (type, extra) => this._emit(type, extra),
       getEngine: () => this._getEngine(),
     });
+    this._styleLoadHandler = () => {
+      this._styleRestorePromise = this._styleRestorePromise.then(async () => {
+        if (this._removed) return;
+        try {
+          await this._layerManager?.restoreLayersAfterStyleChange();
+        } catch (error: unknown) {
+          const normalized = error instanceof Error ? error : new Error(String(error));
+          this._emit('error', { error: normalized });
+        }
+      });
+    };
+    map.on('style.load', this._styleLoadHandler);
 
     // Append panel to map container for independent positioning (avoids overlap with other controls)
     this._mapContainer.appendChild(this._panel);
@@ -149,6 +165,7 @@ export class VectorControl implements IControl {
    * Implements the IControl interface.
    */
   onRemove(): void {
+    this._removed = true;
     // Remove event listeners
     if (this._resizeHandler) {
       window.removeEventListener('resize', this._resizeHandler);
@@ -164,18 +181,24 @@ export class VectorControl implements IControl {
     }
     // Detach any in-flight resize drag listeners.
     this._resizeDragCleanup?.();
+    if (this._styleLoadHandler && this._map) {
+      this._map.off('style.load', this._styleLoadHandler);
+      this._styleLoadHandler = null;
+    }
 
     // Tear down panel UI and layers
     this._disposePanelUI?.();
     this._disposePanelUI = undefined;
-    this._layerManager?.dispose();
+    const layerManager = this._layerManager;
     this._layerManager = undefined;
 
     // Terminate the DuckDB worker if it was loaded
-    if (this._enginePromise) {
-      this._enginePromise.then((engine) => engine.dispose()).catch(() => undefined);
-      this._enginePromise = undefined;
-    }
+    const enginePromise = this._enginePromise;
+    this._enginePromise = undefined;
+    void this._styleRestorePromise.finally(() => {
+      layerManager?.dispose();
+      if (enginePromise) enginePromise.then((engine) => engine.dispose()).catch(() => undefined);
+    });
 
     // Remove panel from map container
     this._panel?.parentNode?.removeChild(this._panel);

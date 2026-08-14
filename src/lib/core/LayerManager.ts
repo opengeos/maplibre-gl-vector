@@ -225,6 +225,48 @@ export class LayerManager {
   }
 
   /**
+   * Recreates every managed source and layer removed by MapLibre's setStyle.
+   * The layer records retain their original data source or engine table, so a
+   * basemap swap can rebuild the presentation without losing user state.
+   */
+  async restoreLayersAfterStyleChange(): Promise<void> {
+    for (const record of this._records.values()) {
+      const sourceExists = Boolean(this._map.getSource(record.info.sourceId));
+      const layersExist = record.info.layerIds.every((id) => Boolean(this._map.getLayer(id)));
+      if (sourceExists && layersExist) continue;
+
+      this._detachPicker(record);
+      if (sourceExists) {
+        for (const id of record.info.layerIds) {
+          if (this._map.getLayer(id)) this._map.removeLayer(id);
+        }
+        record.info.layerIds = addGeometryLayers(this._map, {
+          layerId: record.info.id,
+          geometryType: record.info.geometryType,
+          style: record.info.style,
+          visible: record.info.visible,
+          opacity: record.info.opacity,
+          sourceLayer: record.info.renderMode === 'tiles' ? record.info.id : undefined,
+          beforeId:
+            record.info.beforeId && this._map.getLayer(record.info.beforeId)
+              ? record.info.beforeId
+              : undefined,
+        });
+        this._attachPicker(record);
+        this._emit('layerupdated', { layer: { ...record.info } });
+        continue;
+      }
+      record.info.layerIds = [];
+      if (record.info.renderMode === 'tiles') {
+        await this._presentTiles(record);
+      } else {
+        await this._presentGeoJSON(record);
+      }
+      this._emit('layerupdated', { layer: { ...record.info } });
+    }
+  }
+
+  /**
    * Materializes a layer's features as a GeoJSON FeatureCollection, so a host
    * can persist the data of a layer loaded from a local file (which a saved
    * project cannot otherwise recreate). The data comes from the cached
