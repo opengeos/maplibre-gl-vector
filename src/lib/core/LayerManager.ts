@@ -225,6 +225,28 @@ export class LayerManager {
   }
 
   /**
+   * Recreates every managed source and layer removed by MapLibre's setStyle.
+   * The layer records retain their original data source or engine table, so a
+   * basemap swap can rebuild the presentation without losing user state.
+   */
+  async restoreLayersAfterStyleChange(): Promise<void> {
+    for (const record of this._records.values()) {
+      // Hosts may use a diffing style swap that preserves custom sources. Do
+      // not duplicate a presentation that survived the change.
+      if (this._map.getSource(record.info.sourceId)) continue;
+
+      this._detachPicker(record);
+      record.info.layerIds = [];
+      if (record.info.renderMode === 'tiles') {
+        await this._presentTiles(record);
+      } else {
+        await this._presentGeoJSON(record);
+      }
+      this._emit('layerupdated', { layer: { ...record.info } });
+    }
+  }
+
+  /**
    * Materializes a layer's features as a GeoJSON FeatureCollection, so a host
    * can persist the data of a layer loaded from a local file (which a saved
    * project cannot otherwise recreate). The data comes from the cached

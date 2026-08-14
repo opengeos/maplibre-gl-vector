@@ -64,6 +64,7 @@ export class VectorControl implements IControl {
   private _layerManager?: LayerManager;
   private _enginePromise?: Promise<IEngine>;
   private _disposePanelUI?: () => void;
+  private _styleLoadHandler: (() => void) | null = null;
 
   // Panel positioning handlers
   private _resizeHandler: (() => void) | null = null;
@@ -111,6 +112,13 @@ export class VectorControl implements IControl {
       emit: (type, extra) => this._emit(type, extra),
       getEngine: () => this._getEngine(),
     });
+    this._styleLoadHandler = () => {
+      void this._layerManager?.restoreLayersAfterStyleChange().catch((error: unknown) => {
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        this._emit('error', { error: normalized });
+      });
+    };
+    map.on('style.load', this._styleLoadHandler);
 
     // Append panel to map container for independent positioning (avoids overlap with other controls)
     this._mapContainer.appendChild(this._panel);
@@ -164,6 +172,10 @@ export class VectorControl implements IControl {
     }
     // Detach any in-flight resize drag listeners.
     this._resizeDragCleanup?.();
+    if (this._styleLoadHandler && this._map) {
+      this._map.off('style.load', this._styleLoadHandler);
+      this._styleLoadHandler = null;
+    }
 
     // Tear down panel UI and layers
     this._disposePanelUI?.();

@@ -161,6 +161,29 @@ describe('describeSource', () => {
 });
 
 describe('LayerManager GeoJSON path', () => {
+  it('restores polygon sources and layers after a basemap style swap', async () => {
+    const { manager, map, emit } = createManager();
+    await manager.addData(POLYGON_FC, { id: 'poly', fitBounds: false });
+
+    map.sources.clear();
+    map.layers.clear();
+    map.addSource.mockClear();
+    map.addLayer.mockClear();
+
+    await manager.restoreLayersAfterStyleChange();
+
+    expect(map.addSource).toHaveBeenCalledWith(
+      'poly-source',
+      expect.objectContaining({ type: 'geojson', data: POLYGON_FC }),
+    );
+    expect(map.layers).toEqual(new Set(['poly-fill', 'poly-outline']));
+    expect(manager.getLayer('poly')?.layerIds).toEqual(['poly-fill', 'poly-outline']);
+    expect(emit).toHaveBeenLastCalledWith(
+      'layerupdated',
+      expect.objectContaining({ layer: expect.objectContaining({ id: 'poly' }) }),
+    );
+  });
+
   it('keeps the normal URL path when the host loader declines a source', async () => {
     const urlLoader = vi.fn().mockResolvedValue(null);
     const fetchMock = vi.fn().mockResolvedValue({
