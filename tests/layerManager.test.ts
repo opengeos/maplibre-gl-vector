@@ -929,6 +929,28 @@ describe('LayerManager layer operations', () => {
     expect(map.setLayoutProperty).toHaveBeenCalledWith('pts-circle', 'visibility', 'none');
   });
 
+  it('reports the rebuilt layer ids on the layerupdated a pointMode switch emits', async () => {
+    // The rebuild is async, so emitting the event as the call returns would
+    // hand listeners the ids of the layers it has just removed — and nothing
+    // emits again afterwards. A host mirroring `layerIds` to order or toggle
+    // the map layers would then never manage the replacements.
+    const { manager, emit } = createManager();
+    await manager.addData(POINT_FC, { id: 'pts' });
+    emit.mockClear();
+
+    manager.setLayerStyle('pts', { pointMode: 'heatmap' });
+    await vi.waitFor(() =>
+      expect(emit).toHaveBeenCalledWith('layerupdated', expect.anything()),
+    );
+
+    const updates = emit.mock.calls.filter(([event]) => event === 'layerupdated');
+    for (const [, payload] of updates) {
+      expect((payload as { layer: { layerIds: string[] } }).layer.layerIds).toEqual([
+        'pts-heatmap',
+      ]);
+    }
+  });
+
   it('applies style patches', async () => {
     const { manager, map } = createManager();
     await manager.addData(POLYGON_FC, { id: 'poly' });

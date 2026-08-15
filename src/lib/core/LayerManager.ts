@@ -572,8 +572,21 @@ export class LayerManager {
     // re-adds the label layer from the current style, so no separate label
     // handling is needed on that branch.
     if (this._isStructuralPointChange(record, prev, next)) {
-      void this._rebuildPointLayers(record);
-    } else if (this._isExtrusionToggle(record, prev, next)) {
+      // `_rebuildPointLayers` only replaces `record.info.layerIds` once it
+      // resolves (it awaits KMZ icon preparation), so the event has to wait for
+      // it. Emitting synchronously here would report the ids of the layers the
+      // rebuild has just removed, and nothing emits again afterwards: a host
+      // that mirrors `layerIds` to order or toggle the map layers would leave
+      // the new heatmap/cluster layers unmanaged — they keep whatever stacking
+      // the rebuild appended them with, above layers meant to sit over them.
+      // `finally`, not `then`, so a failed rebuild still reports the record's
+      // current state instead of going silent.
+      void this._rebuildPointLayers(record).finally(() => {
+        this._emit('layerupdated', { layer: { ...record.info } });
+      });
+      return;
+    }
+    if (this._isExtrusionToggle(record, prev, next)) {
       // Flipping extrusion on or off swaps a polygon layer between flat fill and
       // a fill-extrusion layer, which setPaintProperty cannot express; rebuild
       // the map layers (the source is unchanged). The rebuild re-adds the label
