@@ -24,6 +24,8 @@ import {
   detectGeometryColumn,
   exportGeoJSONQuery,
   gdalPath,
+  GEOPARQUET_METADATA_COLUMN,
+  geoParquetCrsQuery,
   geometryTypesQuery,
   isBboxCoveringColumn,
   keepWkbReaderFor,
@@ -46,6 +48,7 @@ import {
   registerZippedShapefile,
 } from "../formats/shapefile";
 import { extractKmzKml } from "../formats/kmz";
+import { geoParquetSourceCrs } from "../formats/geoparquetCrs";
 import {
   isUnsupportedSurfaceWkbError,
   wkbRowsToFeatureCollection,
@@ -288,6 +291,9 @@ export class DuckDBEngine implements IEngine {
       };
 
       let byteSize: number | undefined;
+      // The CRS a streaming view reprojects from, resolved inside
+      // `_createStreamView`; null when it reprojects nothing.
+      let streamCrs: string | null = null;
       // GeoPackages are read with sql.js and reprojected through DuckDB, never
       // through GDAL's ST_Read, which hangs/crashes on the single-threaded WASM
       // build (see geopackage.ts).
@@ -302,7 +308,7 @@ export class DuckDBEngine implements IEngine {
             ? source.size
             : await probeRemoteSize(source as string);
         if (streamed) {
-          await this._createStreamView(tableName, path, options);
+          streamCrs = await this._createStreamView(tableName, path, options);
         } else {
           try {
             await this._createTable(tableName, path, options);
@@ -323,12 +329,13 @@ export class DuckDBEngine implements IEngine {
 
       const columns = await this._describeTable(tableName);
       // A GeoParquet covering bbox is expressed in the file's source CRS.
-      // After an override reprojects `geom` to WGS84, that raw bbox can no
+      // Once `geom` has been reprojected to WGS84 — by an override or by the
+      // CRS the file's own `geo` metadata declares — that raw bbox can no
       // longer be compared with WGS84 tile bounds. Fall back to geometry
       // filtering in this uncommon streaming case rather than pruning away
       // valid rows with mismatched coordinate systems.
       meta.bboxColumn =
-        streamed && options.sourceCrs?.trim()
+        streamed && streamCrs
           ? undefined
           : columns.find((c) => isBboxCoveringColumn(c.name, c.type))?.name;
       meta.propertyColumns = columns
@@ -840,16 +847,9 @@ export class DuckDBEngine implements IEngine {
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (geometryColumn) {
       // Reproject the source geometry to WGS84 so the rest of the pipeline
-      // (tiles, export) can assume EPSG:4326. A caller override also covers
-      // GeoParquet written without usable CRS metadata.
-      const sourceCrs =
-        options.sourceCrs?.trim() ||
-        (options.format === "geoparquet"
-          ? null
-          : await this._readSourceCrs(
-              gdalPath(options.format, path),
-              await this._prjWkt(options, path),
-            ));
+      // (tiles, export) can assume EPSG:4326. A caller override still wins, and
+      // also covers GeoParquet written without usable CRS metadata.
+      const sourceCrs = await this._resolveSourceCrs(path, options);
       try {
         await this._loaded.conn.query(
           createTableFromGeometrySql(
@@ -970,6 +970,58 @@ export class DuckDBEngine implements IEngine {
   }
 
   /**
+   * The CRS to reproject a source from: the caller's `sourceCrs` override when
+   * given, otherwise whatever the file itself declares.
+   *
+   * GeoParquet declares it in its own `geo` file metadata rather than through
+   * GDAL, because it is read with `read_parquet`; every other format is read
+   * with `ST_Read`, so `ST_Read_Meta` (or a shapefile `.prj`) reports it.
+   *
+   * @param path - Registered file name the source was read from
+   * @param options - The ingest options, whose `sourceCrs` override wins
+   * @returns A CRS `ST_Transform` accepts, or null to skip reprojection
+   */
+  private async _resolveSourceCrs(
+    path: string,
+    options: IngestOptions,
+  ): Promise<string | null> {
+    const override = options.sourceCrs?.trim();
+    if (override) return override;
+    if (options.format === "geoparquet") {
+      return this._readGeoParquetCrs(path);
+    }
+    return this._readSourceCrs(
+      gdalPath(options.format, path),
+      await this._prjWkt(options, path),
+    );
+  }
+
+  /**
+   * The CRS a GeoParquet file declares in its `geo` file metadata, or null when
+   * it carries none, declares WGS84, or the metadata cannot be read.
+   *
+   * A read failure is swallowed the way {@link _readSourceCrs} swallows one: the
+   * common case is a plain Parquet with no `geo` key at all, and a file whose
+   * coordinates are already lon/lat must still ingest.
+   *
+   * @param path - Registered file name or URL of the Parquet source
+   * @returns A CRS `ST_Transform` accepts, or null to skip reprojection
+   */
+  private async _readGeoParquetCrs(path: string): Promise<string | null> {
+    try {
+      const result = await this._loaded.conn.query(geoParquetCrsQuery(path));
+      const row = result.toArray()[0] as Record<string, unknown> | undefined;
+      const metadata = row?.[GEOPARQUET_METADATA_COLUMN];
+      return geoParquetSourceCrs(
+        typeof metadata === "string" ? metadata : null,
+        isWgs84AuthCrs,
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Resolves a source's CRS as a string `ST_Transform` accepts —
    * `AUTHORITY:CODE` when GDAL identified one, otherwise the raw WKT definition
    * (common for ESRI `.prj` files without an EPSG code), or null when the source
@@ -1054,26 +1106,27 @@ export class DuckDBEngine implements IEngine {
   /**
    * Creates a streaming view over a GeoParquet reader instead of
    * materializing the data.
+   *
+   * @returns The CRS the view reprojects from, or null when it reprojects
+   *   nothing -- the caller needs this to decide whether the file's covering
+   *   bbox column is still comparable with WGS84 tile bounds.
    */
   private async _createStreamView(
     tableName: string,
     path: string,
     options: IngestOptions,
-  ): Promise<void> {
+  ): Promise<string | null> {
     const reader = readerFor(options.format, path, options.sourceLayer);
     const columns = await this._describeReader(reader);
     const geometryColumn = await this._detectGeometryColumn(reader, columns);
     if (!geometryColumn) {
       throw new Error("No geometry column found in GeoParquet source");
     }
+    const sourceCrs = await this._resolveSourceCrs(path, options);
     await this._loaded.conn.query(
-      createViewFromGeometrySql(
-        tableName,
-        reader,
-        geometryColumn,
-        options.sourceCrs?.trim() || null,
-      ),
+      createViewFromGeometrySql(tableName, reader, geometryColumn, sourceCrs),
     );
+    return sourceCrs;
   }
 
   private async _detectGeometryColumn(

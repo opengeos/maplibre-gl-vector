@@ -614,6 +614,36 @@ export function sourceCrsMetaQuery(path: string): string {
 }
 
 /**
+ * The Parquet file-metadata key the GeoParquet specification writes its column
+ * metadata (including the CRS) to.
+ */
+export const GEOPARQUET_METADATA_KEY = 'geo';
+
+/** The column {@link geoParquetCrsQuery} returns the metadata document in. */
+export const GEOPARQUET_METADATA_COLUMN = 'geo_metadata';
+
+/**
+ * SQL reading a Parquet file's `geo` metadata document as text, the only place
+ * a GeoParquet source declares its CRS (`read_parquet` reports nothing about it
+ * the way `ST_Read_Meta` does for the GDAL formats). Returns no rows for a
+ * plain, non-spatial Parquet.
+ *
+ * The key is matched as a BLOB via `encode` rather than by decoding every key,
+ * so a file carrying a non-UTF-8 metadata key cannot fail the whole read; only
+ * the matched row's value is decoded.
+ *
+ * @param path - Registered file name or URL
+ * @returns The query text
+ */
+export function geoParquetCrsQuery(path: string): string {
+  return (
+    `SELECT decode(value) AS ${GEOPARQUET_METADATA_COLUMN} ` +
+    `FROM parquet_kv_metadata(${quoteLiteral(path)}) ` +
+    `WHERE key = encode(${quoteLiteral(GEOPARQUET_METADATA_KEY)})`
+  );
+}
+
+/**
  * SQL probing whether the loaded spatial build supports ST_AsMVT.
  *
  * @returns The probe query text
