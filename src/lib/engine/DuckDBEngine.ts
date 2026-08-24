@@ -849,7 +849,11 @@ export class DuckDBEngine implements IEngine {
       // Reproject the source geometry to WGS84 so the rest of the pipeline
       // (tiles, export) can assume EPSG:4326. A caller override still wins, and
       // also covers GeoParquet written without usable CRS metadata.
-      const sourceCrs = await this._resolveSourceCrs(path, options);
+      const sourceCrs = await this._resolveSourceCrs(
+        path,
+        options,
+        geometryColumn.name,
+      );
       try {
         await this._loaded.conn.query(
           createTableFromGeometrySql(
@@ -979,16 +983,19 @@ export class DuckDBEngine implements IEngine {
    *
    * @param path - Registered file name the source was read from
    * @param options - The ingest options, whose `sourceCrs` override wins
+   * @param geometryColumn - The geometry column being read, so a GeoParquet
+   *   holding several of them in different CRSs resolves the right one
    * @returns A CRS `ST_Transform` accepts, or null to skip reprojection
    */
   private async _resolveSourceCrs(
     path: string,
     options: IngestOptions,
+    geometryColumn?: string,
   ): Promise<string | null> {
     const override = options.sourceCrs?.trim();
     if (override) return override;
     if (options.format === "geoparquet") {
-      return this._readGeoParquetCrs(path);
+      return this._readGeoParquetCrs(path, geometryColumn);
     }
     return this._readSourceCrs(
       gdalPath(options.format, path),
@@ -1005,9 +1012,14 @@ export class DuckDBEngine implements IEngine {
    * coordinates are already lon/lat must still ingest.
    *
    * @param path - Registered file name or URL of the Parquet source
+   * @param geometryColumn - The geometry column being read, so a file holding
+   *   several of them in different CRSs resolves the right one
    * @returns A CRS `ST_Transform` accepts, or null to skip reprojection
    */
-  private async _readGeoParquetCrs(path: string): Promise<string | null> {
+  private async _readGeoParquetCrs(
+    path: string,
+    geometryColumn?: string,
+  ): Promise<string | null> {
     try {
       const result = await this._loaded.conn.query(geoParquetCrsQuery(path));
       const row = result.toArray()[0] as Record<string, unknown> | undefined;
@@ -1015,6 +1027,7 @@ export class DuckDBEngine implements IEngine {
       return geoParquetSourceCrs(
         typeof metadata === "string" ? metadata : null,
         isWgs84AuthCrs,
+        geometryColumn,
       );
     } catch {
       return null;
@@ -1122,7 +1135,11 @@ export class DuckDBEngine implements IEngine {
     if (!geometryColumn) {
       throw new Error("No geometry column found in GeoParquet source");
     }
-    const sourceCrs = await this._resolveSourceCrs(path, options);
+    const sourceCrs = await this._resolveSourceCrs(
+      path,
+      options,
+      geometryColumn.name,
+    );
     await this._loaded.conn.query(
       createViewFromGeometrySql(tableName, reader, geometryColumn, sourceCrs),
     );

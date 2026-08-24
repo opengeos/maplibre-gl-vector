@@ -99,6 +99,36 @@ describe('geoParquetSourceCrs', () => {
     expect(geoParquetSourceCrs(geoMetadata('EPSG:4326'), isWgs84)).toBeNull();
   });
 
+  it('reads the ingested column, not the primary one, when they differ', () => {
+    // A GeoParquet may carry several geometry columns in different CRSs, and the
+    // ingest reads whichever column it detected. Resolving `primary_column`'s
+    // CRS instead would transform the ingested geometry with another column's
+    // projection and land the layer somewhere else entirely. The physical order
+    // here also differs from `primary_column`, so a first-entry fallback would
+    // be wrong too.
+    const metadata = JSON.stringify({
+      primary_column: 'geom_4326',
+      columns: {
+        geom_2100: { crs: GREEK_GRID_PROJJSON },
+        geom_4326: { crs: { id: { authority: 'EPSG', code: 4326 } } },
+      },
+    });
+    expect(geoParquetSourceCrs(metadata, isWgs84, 'geom_2100')).toBe(
+      'EPSG:2100',
+    );
+    expect(geoParquetSourceCrs(metadata, isWgs84, 'geom_4326')).toBeNull();
+  });
+
+  it('falls back to primary_column when the ingested column is not described', () => {
+    const metadata = JSON.stringify({
+      primary_column: 'geometry',
+      columns: { geometry: { crs: GREEK_GRID_PROJJSON } },
+    });
+    expect(geoParquetSourceCrs(metadata, isWgs84, 'wkb_blob')).toBe(
+      'EPSG:2100',
+    );
+  });
+
   it('reads the column named by primary_column, not the first one listed', () => {
     const metadata = JSON.stringify({
       primary_column: 'geom_2100',
