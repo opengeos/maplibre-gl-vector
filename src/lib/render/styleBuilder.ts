@@ -185,6 +185,29 @@ export function labelTextField(style: VectorLayerStyle): PropertyValueSpecificat
   ] as unknown as PropertyValueSpecification<string>;
 }
 
+/** The style keys {@link labelTextField} reads. */
+const LABEL_TEXT_FIELD_KEYS = [
+  'labelField',
+  'labelNumberFormat',
+  'labelNumberDecimals',
+  'labelNumberLocale',
+] as const;
+
+/**
+ * Whether a style patch changes the label `text-field` expression.
+ *
+ * Tests key presence rather than `!== undefined`: the resolved style is
+ * `{...prev, ...patch}`, so a patch clearing an option back to its default
+ * with an explicit `undefined` does change the expression, and the drawn
+ * label has to follow it.
+ *
+ * @param patch - The style patch being applied
+ * @returns True when the label text needs rebuilding
+ */
+export function touchesLabelTextField(patch: Partial<VectorLayerStyle>): boolean {
+  return LABEL_TEXT_FIELD_KEYS.some((key) => key in patch);
+}
+
 /**
  * Builds the symbol-layer layout for a label layer.
  *

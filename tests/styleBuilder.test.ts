@@ -8,6 +8,7 @@ import {
   clampOpacity,
   hasLabels,
   labelTextField,
+  touchesLabelTextField,
   mapLayerId,
   opacityToPaintOps,
   stylePatchToPaintOps,
@@ -299,6 +300,19 @@ describe('labels', () => {
         labelNumberLocale: 'en-US',
       }),
     ).toEqual(['to-string', ['coalesce', ['get', 'pop'], '']]);
+  });
+
+  it('detects every patch that changes the label text', () => {
+    expect(touchesLabelTextField({ labelField: 'pop' })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberFormat: true })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberDecimals: 2 })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberLocale: 'de-DE' })).toBe(true);
+    // Key presence, not `!== undefined`: the resolved style is
+    // `{...prev, ...patch}`, so clearing an option back to its default with an
+    // explicit undefined still changes the expression.
+    expect(touchesLabelTextField({ labelNumberFormat: undefined })).toBe(true);
+    expect(touchesLabelTextField({ labelSize: 18 })).toBe(false);
+    expect(touchesLabelTextField({})).toBe(false);
   });
 
   it('builds label paint from defaults and overrides', () => {

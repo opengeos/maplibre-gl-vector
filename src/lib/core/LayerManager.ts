@@ -26,6 +26,7 @@ import {
   clampOpacity,
   hasLabels,
   labelTextField,
+  touchesLabelTextField,
   mapLayerId,
   pointModeOf,
 } from '../render/styleBuilder';
@@ -635,14 +636,9 @@ export class LayerManager {
     // Both before and after have labels: apply the layout-side changes (paint
     // changes already went through applyStyle).
     // The number-format settings change the text-field alongside the field
-    // itself, so they share this branch; without them a format toggle would
-    // update the style object and leave the drawn labels untouched.
-    if (
-      patch.labelField !== undefined ||
-      patch.labelNumberFormat !== undefined ||
-      patch.labelNumberDecimals !== undefined ||
-      patch.labelNumberLocale !== undefined
-    ) {
+    // itself, so one predicate covers all four keys; without them a format
+    // toggle would update the style object and leave the drawn labels alone.
+    if (touchesLabelTextField(patch)) {
       this._map.setLayoutProperty(labelId, 'text-field', labelTextField(next));
     }
     if (patch.labelSize !== undefined) {
