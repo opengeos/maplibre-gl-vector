@@ -479,6 +479,33 @@ export interface VectorLayerStyle {
    */
   labelAllowOverlap?: boolean;
   /**
+   * Render a numeric `labelField` with the locale's thousands and decimal
+   * separators, so `1234567.5` labels as `1,234,567.5` instead of running
+   * together. Values that are not numbers are unaffected: the label falls
+   * back to the plain string rendering, so a mixed or text column labels
+   * exactly as it did.
+   * @default false
+   */
+  labelNumberFormat?: boolean;
+  /**
+   * Decimal places kept while {@link labelNumberFormat} is on. Clamped to
+   * 0-10; zero rounds to whole numbers.
+   * @default 0
+   */
+  labelNumberDecimals?: number;
+  /**
+   * BCP 47 tag selecting the separators for {@link labelNumberFormat}, e.g.
+   * `'en-US'` for `1,234,567.5` or `'de-DE'` for `1.234.567,5`. Omitted (or
+   * empty) leaves the runtime default, which follows the host's own locale.
+   *
+   * A tag `Intl` rejects is ignored rather than baked into the style:
+   * MapLibre builds an `Intl.NumberFormat` per feature while rendering, so a
+   * malformed tag would throw during the render and take down the layer's
+   * labels.
+   * @default '' (the runtime locale)
+   */
+  labelNumberLocale?: string;
+  /**
    * Render polygon features as 3D extrusions (a `fill-extrusion` map layer)
    * instead of a flat fill. Only affects polygon geometry; line and point
    * layers ignore it. Toggling it rebuilds the layer's polygon map layers (a

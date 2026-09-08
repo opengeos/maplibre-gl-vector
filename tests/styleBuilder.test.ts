@@ -227,6 +227,80 @@ describe('labels', () => {
     ]);
   });
 
+  it('groups thousands when labelNumberFormat is on', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 0,
+        labelNumberLocale: 'en-US',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      // MapLibre's number-format ignores a falsy option, so zero fraction
+      // digits cannot be requested directly; rounding first stands in for it.
+      ['number-format', ['round', ['to-number', ['get', 'pop']]], { locale: 'en-US' }],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('pads to a fixed number of decimals', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 2,
+        labelNumberLocale: 'de-DE',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      [
+        'number-format',
+        ['to-number', ['get', 'pop']],
+        { locale: 'de-DE', 'min-fraction-digits': 2, 'max-fraction-digits': 2 },
+      ],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('clamps decimals and drops a locale tag Intl rejects', () => {
+    // Both can arrive from a persisted style. MapLibre builds an
+    // Intl.NumberFormat per feature, so a bad tag would throw mid-render.
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 99,
+        labelNumberLocale: 'not a locale',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      [
+        'number-format',
+        ['to-number', ['get', 'pop']],
+        { 'min-fraction-digits': 10, 'max-fraction-digits': 10 },
+      ],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('leaves the text-field alone when labelNumberFormat is off', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberDecimals: 2,
+        labelNumberLocale: 'en-US',
+      }),
+    ).toEqual(['to-string', ['coalesce', ['get', 'pop'], '']]);
+  });
+
   it('builds label paint from defaults and overrides', () => {
     expect(buildPaint('label', { ...DEFAULT_STYLE, labelField: 'name' })).toEqual({
       'text-color': '#333333',

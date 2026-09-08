@@ -634,7 +634,15 @@ export class LayerManager {
 
     // Both before and after have labels: apply the layout-side changes (paint
     // changes already went through applyStyle).
-    if (patch.labelField !== undefined) {
+    // The number-format settings change the text-field alongside the field
+    // itself, so they share this branch; without them a format toggle would
+    // update the style object and leave the drawn labels untouched.
+    if (
+      patch.labelField !== undefined ||
+      patch.labelNumberFormat !== undefined ||
+      patch.labelNumberDecimals !== undefined ||
+      patch.labelNumberLocale !== undefined
+    ) {
       this._map.setLayoutProperty(labelId, 'text-field', labelTextField(next));
     }
     if (patch.labelSize !== undefined) {

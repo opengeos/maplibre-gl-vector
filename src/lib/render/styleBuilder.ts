@@ -108,19 +108,80 @@ export function hasLabels(style: VectorLayerStyle): boolean {
   return typeof style.labelField === 'string' && style.labelField.trim().length > 0;
 }
 
+/** Locale tags `Intl` has already accepted or rejected, so each is tried once. */
+const localeSupport = new Map<string, boolean>();
+
+/**
+ * A locale tag `Intl` accepts, or `undefined` for the runtime default.
+ *
+ * MapLibre's `number-format` constructs an `Intl.NumberFormat` per feature
+ * while rendering, so a malformed BCP 47 tag baked into the style throws a
+ * `RangeError` mid-render and takes the layer's labels down with it. Checking
+ * here keeps a bad tag out of the style in the first place.
+ *
+ * @param tag - The requested locale tag
+ * @returns The tag when usable, otherwise undefined
+ */
+function usableLocale(tag: string | undefined): string | undefined {
+  if (!tag) return undefined;
+  let supported = localeSupport.get(tag);
+  if (supported === undefined) {
+    try {
+      new Intl.NumberFormat(tag);
+      supported = true;
+    } catch {
+      supported = false;
+    }
+    localeSupport.set(tag, supported);
+  }
+  return supported ? tag : undefined;
+}
+
+/** Clamp a decimal-places setting to the range `Intl` accepts. */
+function labelDecimals(decimals: number | undefined): number {
+  if (typeof decimals !== 'number' || !Number.isFinite(decimals)) return 0;
+  return Math.max(0, Math.min(10, Math.trunc(decimals)));
+}
+
 /**
  * Builds the `text-field` expression for a label layer: the feature's
  * `labelField` value coerced to a string, with missing values rendered as
  * empty text (so a cluster aggregate or a feature lacking the field shows
  * nothing rather than breaking the layer).
  *
+ * With `labelNumberFormat` on, a numeric value instead renders through
+ * MapLibre's `number-format` so it carries the locale's thousands and decimal
+ * separators. The number branch is guarded by a `typeof` test rather than
+ * applied blindly, so a text or mixed column keeps the plain rendering.
+ *
  * @param style - The layer style (its `labelField` drives the expression)
  * @returns A MapLibre `text-field` expression
  */
 export function labelTextField(style: VectorLayerStyle): PropertyValueSpecification<string> {
+  const field = style.labelField ?? '';
+  const asText = ['to-string', ['coalesce', ['get', field], '']];
+  if (!style.labelNumberFormat) {
+    return asText as unknown as PropertyValueSpecification<string>;
+  }
+  const locale = usableLocale(style.labelNumberLocale);
+  const digits = labelDecimals(style.labelNumberDecimals);
+  const options: Record<string, unknown> = {};
+  if (locale) options.locale = locale;
+  // MapLibre's `number-format` ignores a falsy option, so zero fraction digits
+  // cannot be requested that way -- it would silently fall back to the spec
+  // default of up to three. Rounding first gives an integer, which then prints
+  // with no fraction digits at all.
+  const number =
+    digits > 0 ? ['to-number', ['get', field]] : ['round', ['to-number', ['get', field]]];
+  if (digits > 0) {
+    options['min-fraction-digits'] = digits;
+    options['max-fraction-digits'] = digits;
+  }
   return [
-    'to-string',
-    ['coalesce', ['get', style.labelField ?? ''], ''],
+    'case',
+    ['==', ['typeof', ['get', field]], 'number'],
+    ['number-format', number, options],
+    asText,
   ] as unknown as PropertyValueSpecification<string>;
 }
 
