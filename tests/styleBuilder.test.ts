@@ -8,6 +8,7 @@ import {
   clampOpacity,
   hasLabels,
   labelTextField,
+  touchesLabelTextField,
   mapLayerId,
   opacityToPaintOps,
   stylePatchToPaintOps,
@@ -225,6 +226,93 @@ describe('labels', () => {
       'to-string',
       ['coalesce', ['get', 'name'], ''],
     ]);
+  });
+
+  it('groups thousands when labelNumberFormat is on', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 0,
+        labelNumberLocale: 'en-US',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      // MapLibre's number-format ignores a falsy option, so zero fraction
+      // digits cannot be requested directly; rounding first stands in for it.
+      ['number-format', ['round', ['to-number', ['get', 'pop']]], { locale: 'en-US' }],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('pads to a fixed number of decimals', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 2,
+        labelNumberLocale: 'de-DE',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      [
+        'number-format',
+        ['to-number', ['get', 'pop']],
+        { locale: 'de-DE', 'min-fraction-digits': 2, 'max-fraction-digits': 2 },
+      ],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('clamps decimals and drops a locale tag Intl rejects', () => {
+    // Both can arrive from a persisted style. MapLibre builds an
+    // Intl.NumberFormat per feature, so a bad tag would throw mid-render.
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberFormat: true,
+        labelNumberDecimals: 99,
+        labelNumberLocale: 'not a locale',
+      }),
+    ).toEqual([
+      'case',
+      ['==', ['typeof', ['get', 'pop']], 'number'],
+      [
+        'number-format',
+        ['to-number', ['get', 'pop']],
+        { 'min-fraction-digits': 10, 'max-fraction-digits': 10 },
+      ],
+      ['to-string', ['coalesce', ['get', 'pop'], '']],
+    ]);
+  });
+
+  it('leaves the text-field alone when labelNumberFormat is off', () => {
+    expect(
+      labelTextField({
+        ...DEFAULT_STYLE,
+        labelField: 'pop',
+        labelNumberDecimals: 2,
+        labelNumberLocale: 'en-US',
+      }),
+    ).toEqual(['to-string', ['coalesce', ['get', 'pop'], '']]);
+  });
+
+  it('detects every patch that changes the label text', () => {
+    expect(touchesLabelTextField({ labelField: 'pop' })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberFormat: true })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberDecimals: 2 })).toBe(true);
+    expect(touchesLabelTextField({ labelNumberLocale: 'de-DE' })).toBe(true);
+    // Key presence, not `!== undefined`: the resolved style is
+    // `{...prev, ...patch}`, so clearing an option back to its default with an
+    // explicit undefined still changes the expression.
+    expect(touchesLabelTextField({ labelNumberFormat: undefined })).toBe(true);
+    expect(touchesLabelTextField({ labelSize: 18 })).toBe(false);
+    expect(touchesLabelTextField({})).toBe(false);
   });
 
   it('builds label paint from defaults and overrides', () => {
