@@ -1132,6 +1132,63 @@ describe('LayerManager layer operations', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
+  it('stops an in-flight load at dispose so a re-initialized control can reuse the id', async () => {
+    // GeoLibre re-creates the control on the same map while a large layer is
+    // still loading; the stale load must not add its source afterwards.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const engine = createMockEngine({
+      ingest: vi.fn(async (_source, tableName) => {
+        await gate;
+        return {
+          tableName,
+          featureCount: 100,
+          fields: ['name'],
+          bbox: [0, 0, 10, 10] as [number, number, number, number],
+          geometryType: 'polygon' as const,
+        };
+      }),
+    });
+    const { manager, map, emit } = createManager({}, engine);
+    const stale = manager
+      .addData(new File(['x'], 'big.fgb'), { id: 'big', renderMode: 'geojson' })
+      .then(() => null, (err: unknown) => err);
+    await vi.waitFor(() => expect(engine.ingest).toHaveBeenCalled());
+
+    manager.dispose();
+    emit.mockClear();
+    const next = new LayerManager({
+      map: map as unknown as MapLibreMap,
+      options: {},
+      emit: vi.fn(),
+      getEngine: async () => createMockEngine(),
+    });
+    await next.addData(POLYGON_FC, { id: 'big' });
+
+    release();
+    expect(isVectorLayerSelectionCancelled(await stale)).toBe(true);
+    expect(map.addSource).toHaveBeenCalledTimes(1);
+    expect(next.getLayers()).toHaveLength(1);
+    expect(manager.getLayers()).toHaveLength(0);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('stops an in-flight tile load at dispose', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const engine = createMockEngine({ prepareTiles: vi.fn(() => gate) });
+    const { manager, map } = createManager({}, engine);
+    const stale = manager
+      .addData(new File(['x'], 'big.fgb'), { id: 'big', renderMode: 'tiles' })
+      .then(() => null, (err: unknown) => err);
+    await vi.waitFor(() => expect(engine.prepareTiles).toHaveBeenCalled());
+
+    manager.dispose();
+    release();
+    expect(isVectorLayerSelectionCancelled(await stale)).toBe(true);
+    expect(map.addSource).not.toHaveBeenCalled();
+  });
+
   it('describes the data source for persistence', async () => {
     const { manager } = createManager();
     vi.stubGlobal(
