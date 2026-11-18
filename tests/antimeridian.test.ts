@@ -63,6 +63,22 @@ describe('collectLongitudeIntervals', () => {
     expect(out).toEqual([[1, 1], [5, 5], [170, 179], [-179, -178]]);
   });
 
+  it('skips malformed coordinate containers', () => {
+    const out: Array<[number, number]> = [];
+    for (const type of ['MultiPoint', 'MultiLineString', 'Polygon', 'MultiPolygon']) {
+      collectLongitudeIntervals({ type, coordinates: {} } as unknown as Geometry, out);
+    }
+    collectLongitudeIntervals(
+      { type: 'GeometryCollection', geometries: {} } as unknown as Geometry,
+      out,
+    );
+    collectLongitudeIntervals(
+      { type: 'MultiPolygon', coordinates: [null, 5] } as unknown as Geometry,
+      out,
+    );
+    expect(out).toEqual([]);
+  });
+
   it('skips null and empty geometries', () => {
     const out: Array<[number, number]> = [];
     collectLongitudeIntervals(null, out);

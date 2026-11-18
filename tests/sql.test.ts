@@ -398,7 +398,11 @@ describe('longitudeIntervalsQuery', () => {
     const sql = longitudeIntervalsQuery('t1', 'geometry_bbox');
     expect(sql).toContain('"geometry_bbox".xmin AS lo');
     expect(sql).toContain('("geometry_bbox".xmax - "geometry_bbox".xmin) > 180');
-    // Only the wide features decode their geometry.
+    // Only the wide features decode their geometry; the narrow branch reads
+    // nothing but the covering column.
     expect(sql).toContain('unnest(ST_Dump(geom))');
+    const narrow = sql.slice(0, sql.indexOf('UNION ALL'));
+    expect(narrow).not.toMatch(/\bgeom\b/);
+    expect(narrow).toContain('"geometry_bbox" IS NOT NULL');
   });
 });

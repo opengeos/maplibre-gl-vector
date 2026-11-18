@@ -138,6 +138,14 @@ function positionsInterval(positions: unknown): [number, number] | null {
 }
 
 /**
+ * The value when it is an array, otherwise an empty one, so a malformed
+ * coordinate container (`coordinates: {}`) is skipped rather than iterated.
+ */
+function arrayOrEmpty<T>(value: readonly T[] | null | undefined): readonly T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/**
  * Append the `[min, max]` longitude of every contiguous part of a geometry
  * (each point, each line, each polygon's outer ring) to `out`. RFC 7946 asks
  * for a geometry that crosses the antimeridian to be split into such parts, so
@@ -160,22 +168,24 @@ export function collectLongitudeIntervals(
       push([geometry.coordinates]);
       break;
     case 'MultiPoint':
-      for (const position of geometry.coordinates ?? []) push([position]);
+      for (const position of arrayOrEmpty(geometry.coordinates)) push([position]);
       break;
     case 'LineString':
       push(geometry.coordinates);
       break;
     case 'MultiLineString':
-      for (const line of geometry.coordinates ?? []) push(line);
+      for (const line of arrayOrEmpty(geometry.coordinates)) push(line);
       break;
     case 'Polygon':
-      push(geometry.coordinates?.[0]);
+      push(arrayOrEmpty(geometry.coordinates)[0]);
       break;
     case 'MultiPolygon':
-      for (const polygon of geometry.coordinates ?? []) push(polygon?.[0]);
+      for (const polygon of arrayOrEmpty(geometry.coordinates)) {
+        push(Array.isArray(polygon) ? polygon[0] : undefined);
+      }
       break;
     case 'GeometryCollection':
-      for (const member of geometry.geometries ?? []) collectLongitudeIntervals(member, out);
+      for (const member of arrayOrEmpty(geometry.geometries)) collectLongitudeIntervals(member, out);
       break;
     default:
       break;

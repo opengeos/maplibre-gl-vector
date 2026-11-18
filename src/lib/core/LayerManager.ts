@@ -486,7 +486,7 @@ export class LayerManager {
     }
 
     this._records.set(id, record);
-    const fitBox = record.info.fitBbox ?? record.info.bbox;
+    const fitBox = this._fitBoxFor(record.info);
     if ((options.fitBounds ?? true) && fitBox) {
       this._fitBounds(fitBox);
     }
@@ -553,7 +553,7 @@ export class LayerManager {
    */
   zoomToLayer(id: string): void {
     const record = this._records.get(id);
-    const fitBox = record?.info.fitBbox ?? record?.info.bbox;
+    const fitBox = record && this._fitBoxFor(record.info);
     if (!fitBox) return;
     this._fitBounds(fitBox);
   }
@@ -1041,12 +1041,17 @@ export class LayerManager {
 
     // Zoom once to the combined extent of all created layers.
     if (options.fitBounds ?? true) {
-      const boxes = infos.map((info) => info.fitBbox ?? info.bbox).filter(Boolean) as Array<
+      const wraps = this._wrapsAntimeridian();
+      const boxes = infos.map((info) => this._fitBoxFor(info)).filter(Boolean) as Array<
         [number, number, number, number]
       >;
-      // Each box may already cross the antimeridian (`east` above 180), so
-      // combine their longitudes the short way round rather than by min/max.
-      const lon = shortestLongitudeExtent(boxes.map((b) => [b[0], b[2]] as [number, number]));
+      // Each box may already cross the antimeridian (`east` above 180), so on a
+      // map that wraps, combine their longitudes the short way round.
+      const lon = wraps
+        ? shortestLongitudeExtent(boxes.map((b) => [b[0], b[2]] as [number, number]))
+        : boxes.length > 0
+          ? [Math.min(...boxes.map((b) => b[0])), Math.max(...boxes.map((b) => b[2]))]
+          : null;
       if (lon) {
         this._fitBounds([
           lon[0],
@@ -1607,6 +1612,30 @@ export class LayerManager {
         throw err;
       },
     );
+  }
+
+  /**
+   * The extent to fit the camera to for a layer: its antimeridian-aware
+   * `fitBbox` on a map that wraps, otherwise its plain `bbox`.
+   */
+  private _fitBoxFor(info: {
+    bbox?: [number, number, number, number];
+    fitBbox?: [number, number, number, number];
+  }): [number, number, number, number] | undefined {
+    return info.fitBbox && this._wrapsAntimeridian() ? info.fitBbox : info.bbox;
+  }
+
+  /**
+   * Whether the map shows data across the antimeridian side by side: a globe
+   * always does, and a flat map does unless world copies are turned off, in
+   * which case the two sides sit at opposite edges of the only world drawn.
+   */
+  private _wrapsAntimeridian(): boolean {
+    const map = this._map as Partial<
+      Pick<MapLibreMap, 'getRenderWorldCopies' | 'getProjection'>
+    >;
+    if (map.getRenderWorldCopies?.() !== false) return true;
+    return map.getProjection?.()?.type === 'globe';
   }
 
   private _fitBounds(bbox: [number, number, number, number]): void {

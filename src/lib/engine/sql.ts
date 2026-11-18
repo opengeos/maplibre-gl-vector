@@ -386,9 +386,12 @@ export function longitudeIntervalsQuery(tableName: string, bboxColumn?: string):
   const lo = bbox ? `${bbox}.xmin` : 'ST_XMin(geom)';
   const hi = bbox ? `${bbox}.xmax` : 'ST_XMax(geom)';
   const wide = `(${hi} - ${lo}) > 180`;
+  // The narrow branch must not touch `geom`: on a streamed view it is decoded
+  // from WKB per row, which is exactly what the covering column avoids.
+  const present = bbox ? `${bbox} IS NOT NULL` : 'geom IS NOT NULL';
   return (
     `SELECT min(lo)::DOUBLE AS xmin, max(hi)::DOUBLE AS xmax FROM (` +
-    `SELECT ${lo} AS lo, ${hi} AS hi FROM ${table} WHERE geom IS NOT NULL AND NOT ${wide} ` +
+    `SELECT ${lo} AS lo, ${hi} AS hi FROM ${table} WHERE ${present} AND NOT ${wide} ` +
     `UNION ALL ` +
     `SELECT ST_XMin(part.geom) AS lo, ST_XMax(part.geom) AS hi FROM (` +
     `SELECT unnest(ST_Dump(geom)) AS part FROM ${table} WHERE geom IS NOT NULL AND ${wide})` +

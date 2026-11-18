@@ -445,6 +445,31 @@ describe('LayerManager GeoJSON path', () => {
     ]);
   });
 
+  it('fits the plain extent on a flat map without world copies', async () => {
+    const engine = createMockEngine();
+    const { manager, map } = createManager({}, engine, {
+      getRenderWorldCopies: vi.fn(() => false),
+      getProjection: vi.fn(() => ({ type: 'mercator' })),
+    });
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [179, -179].map((lon) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [lon, 52] },
+        properties: {},
+      })),
+    };
+
+    await manager.addData(fc, { id: 'aleutians' });
+
+    // Without world copies the two points sit at opposite edges of the only
+    // world drawn, so the wrapped extent would leave one of them out.
+    expect(map.fitBounds.mock.calls[0][0]).toEqual([
+      [-179, 52],
+      [179, 52],
+    ]);
+  });
+
   it('emits error and rethrows on invalid sources', async () => {
     const { manager, emit } = createManager();
     vi.stubGlobal(
