@@ -37,6 +37,11 @@ export interface IngestSummary {
   fields?: string[];
   /** Extent in EPSG:4326 */
   bbox?: Bbox;
+  /**
+   * The extent to fit the camera to: `bbox`, except that data on both sides of
+   * the antimeridian takes the short way round it, with `east` above 180.
+   */
+  fitBbox?: Bbox;
   /** Broad geometry category */
   geometryType: GeometryCategory;
   /** Source size in bytes, when known */

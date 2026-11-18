@@ -48,6 +48,7 @@ import {
   toFeatureCollection,
 } from '../utils/geometry';
 import { fitMapToBbox } from '../utils/fit';
+import { shortestLongitudeExtent } from '../utils/antimeridian';
 import { generateId } from '../utils/helpers';
 import { getMaplibre } from '../utils/maplibre';
 import { assertRemoteFileSupported } from '../utils/remote';
@@ -485,8 +486,9 @@ export class LayerManager {
     }
 
     this._records.set(id, record);
-    if ((options.fitBounds ?? true) && record.info.bbox) {
-      this._fitBounds(record.info.bbox);
+    const fitBox = record.info.fitBbox ?? record.info.bbox;
+    if ((options.fitBounds ?? true) && fitBox) {
+      this._fitBounds(fitBox);
     }
     this._emit('layeradded', { layer: { ...record.info } });
     return { ...record.info };
@@ -551,8 +553,9 @@ export class LayerManager {
    */
   zoomToLayer(id: string): void {
     const record = this._records.get(id);
-    if (!record?.info.bbox) return;
-    this._fitBounds(record.info.bbox);
+    const fitBox = record?.info.fitBbox ?? record?.info.bbox;
+    if (!fitBox) return;
+    this._fitBounds(fitBox);
   }
 
   /**
@@ -1038,14 +1041,17 @@ export class LayerManager {
 
     // Zoom once to the combined extent of all created layers.
     if (options.fitBounds ?? true) {
-      const boxes = infos.map((info) => info.bbox).filter(Boolean) as Array<
+      const boxes = infos.map((info) => info.fitBbox ?? info.bbox).filter(Boolean) as Array<
         [number, number, number, number]
       >;
-      if (boxes.length > 0) {
+      // Each box may already cross the antimeridian (`east` above 180), so
+      // combine their longitudes the short way round rather than by min/max.
+      const lon = shortestLongitudeExtent(boxes.map((b) => [b[0], b[2]] as [number, number]));
+      if (lon) {
         this._fitBounds([
-          Math.min(...boxes.map((b) => b[0])),
+          lon[0],
           Math.min(...boxes.map((b) => b[1])),
-          Math.max(...boxes.map((b) => b[2])),
+          lon[1],
           Math.max(...boxes.map((b) => b[3])),
         ]);
       }
@@ -1145,6 +1151,7 @@ export class LayerManager {
     record.info.featureCount = summary.featureCount;
     record.info.byteSize = byteSize;
     record.info.bbox = summary.bbox;
+    record.info.fitBbox = summary.fitBbox;
     record.info.geometryType = summary.geometryType;
     record.info.fields = collectFieldNames(collection);
 
@@ -1180,6 +1187,7 @@ export class LayerManager {
       // Replace the projected-metres bbox with the WGS84 extent so the caller's
       // fitBounds receives valid lon/lat.
       record.info.bbox = reprojectedSummary.bbox;
+      record.info.fitBbox = reprojectedSummary.fitBbox;
     }
 
     record.info.renderMode = 'geojson';
@@ -1216,6 +1224,7 @@ export class LayerManager {
     record.info.featureCount = summary.featureCount;
     record.info.byteSize = summary.byteSize ?? record.info.byteSize;
     record.info.bbox = summary.bbox;
+    record.info.fitBbox = summary.fitBbox;
     record.info.geometryType = summary.geometryType;
 
     const mode = decideRenderMode({
@@ -1272,7 +1281,10 @@ export class LayerManager {
     if (!record.tableName) {
       const summary = await this._ingest(record);
       record.info.featureCount = summary.featureCount;
-      record.info.bbox = summary.bbox ?? record.info.bbox;
+      if (summary.bbox) {
+        record.info.bbox = summary.bbox;
+        record.info.fitBbox = summary.fitBbox;
+      }
       record.info.geometryType =
         summary.geometryType !== 'unknown' ? summary.geometryType : record.info.geometryType;
     }

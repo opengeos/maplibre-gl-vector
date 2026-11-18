@@ -364,6 +364,39 @@ export function bboxSummaryQuery(tableName: string, bboxColumn: string): string 
 }
 
 /**
+ * SQL listing the longitude intervals a table's data occupies, for taking the
+ * short way round the antimeridian when the plain extent is wider than a
+ * hemisphere.
+ *
+ * Each feature contributes its `[xmin, xmax]` (from the bbox covering column
+ * when there is one, so a streamed source is not decoded). A feature wider than
+ * a hemisphere is one that may straddle the antimeridian (a county spanning the
+ * Aleutians), so it contributes each of its parts instead. Intervals are then
+ * grouped by the whole degree they start in, keeping each group's exact
+ * `min(xmin)` and `max(xmax)`: that bounds the result to at most 360 rows and
+ * only hides gaps narrower than a degree, which never decide the widest gap.
+ *
+ * @param tableName - The table or view to inspect
+ * @param bboxColumn - Optional bbox covering column to read extents from
+ * @returns The query text, yielding `xmin` and `xmax` columns
+ */
+export function longitudeIntervalsQuery(tableName: string, bboxColumn?: string): string {
+  const table = quoteIdent(tableName);
+  const bbox = bboxColumn ? quoteIdent(bboxColumn) : undefined;
+  const lo = bbox ? `${bbox}.xmin` : 'ST_XMin(geom)';
+  const hi = bbox ? `${bbox}.xmax` : 'ST_XMax(geom)';
+  const wide = `(${hi} - ${lo}) > 180`;
+  return (
+    `SELECT min(lo)::DOUBLE AS xmin, max(hi)::DOUBLE AS xmax FROM (` +
+    `SELECT ${lo} AS lo, ${hi} AS hi FROM ${table} WHERE geom IS NOT NULL AND NOT ${wide} ` +
+    `UNION ALL ` +
+    `SELECT ST_XMin(part.geom) AS lo, ST_XMax(part.geom) AS hi FROM (` +
+    `SELECT unnest(ST_Dump(geom)) AS part FROM ${table} WHERE geom IS NOT NULL AND ${wide})` +
+    `) WHERE lo IS NOT NULL AND hi IS NOT NULL GROUP BY floor(lo)`
+  );
+}
+
+/**
  * SQL sampling the distinct geometry types of a table or view without
  * scanning every row (streamed sources can be large).
  *

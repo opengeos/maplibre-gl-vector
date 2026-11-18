@@ -711,6 +711,14 @@ export interface VectorLayerInfo {
   byteSize?: number;
   /** Layer extent in EPSG:4326 [minX, minY, maxX, maxY] */
   bbox?: [number, number, number, number];
+  /**
+   * The extent the camera fits to when zooming to the layer: `bbox`, except
+   * that a layer with data on both sides of the antimeridian (Alaska's
+   * Aleutians, Fiji) takes the short way round it, with `east` above 180, so it
+   * is not framed as the whole globe. `bbox` keeps the plain min/max because it
+   * also bounds the tile source.
+   */
+  fitBbox?: [number, number, number, number];
   /** Whether the layer is currently visible */
   visible: boolean;
   /** Master opacity (0-1) multiplied into every style opacity */
