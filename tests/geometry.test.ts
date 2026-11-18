@@ -168,3 +168,43 @@ describe('collectFieldNames', () => {
     expect(collectFieldNames(fc)).toEqual([]);
   });
 });
+
+describe('summarizeFeatureCollection fitBbox', () => {
+  it('equals the bbox for data that does not straddle the antimeridian', () => {
+    const summary = summarizeFeatureCollection({
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [10, 20] }, properties: {} },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [-5, -2] }, properties: {} },
+      ],
+    });
+    expect(summary.fitBbox).toEqual(summary.bbox);
+  });
+
+  it('takes the short way round for parts on both sides of the antimeridian', () => {
+    // One county-like MultiPolygon split at 180 degrees, plus mainland Alaska.
+    const summary = summarizeFeatureCollection({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'MultiPolygon',
+            coordinates: [
+              [[[172, 52], [179.8, 52], [179.8, 53], [172, 52]]],
+              [[[-179.2, 51], [-178, 51], [-178, 52], [-179.2, 51]]],
+            ],
+          },
+          properties: {},
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [[[-168, 55], [-141, 55], [-141, 71], [-168, 55]]] },
+          properties: {},
+        },
+      ],
+    });
+    expect(summary.bbox).toEqual([-179.2, 51, 179.8, 71]);
+    expect(summary.fitBbox).toEqual([172, 51, 219, 71]);
+  });
+});

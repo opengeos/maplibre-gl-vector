@@ -1,5 +1,6 @@
 import type { Feature, FeatureCollection, GeoJSON, Geometry, Position } from 'geojson';
 import type { GeometryCategory } from '../core/types';
+import { collectLongitudeIntervals, fitExtent } from './antimeridian';
 
 /**
  * Bounding box as [minX, minY, maxX, maxY] in EPSG:4326.
@@ -125,6 +126,11 @@ export interface GeoJSONSummary {
   featureCount: number;
   geometryType: GeometryCategory;
   bbox?: Bbox;
+  /**
+   * The extent to fit the camera to: `bbox`, except that data on both sides of
+   * the antimeridian takes the short way round it, with `east` above 180.
+   */
+  fitBbox?: Bbox;
 }
 
 /**
@@ -145,10 +151,20 @@ export function summarizeFeatureCollection(collection: FeatureCollection): GeoJS
     }
   }
 
+  const valid = bbox[0] <= bbox[2] && bbox[1] <= bbox[3];
   return {
     featureCount: collection.features.length,
     geometryType: category ?? 'unknown',
-    bbox: bbox[0] <= bbox[2] && bbox[1] <= bbox[3] ? bbox : undefined,
+    bbox: valid ? bbox : undefined,
+    fitBbox: valid
+      ? fitExtent(bbox, () => {
+          const intervals: Array<[number, number]> = [];
+          for (const feature of collection.features as Feature[]) {
+            collectLongitudeIntervals(feature.geometry, intervals);
+          }
+          return intervals;
+        })
+      : undefined,
   };
 }
 

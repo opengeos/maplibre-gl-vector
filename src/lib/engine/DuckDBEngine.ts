@@ -3,6 +3,7 @@ import type { GeometryCategory } from "../core/types";
 import type { IEngine, IngestOptions, IngestSummary } from "./types";
 import type { Bbox } from "../utils/geometry";
 import { mergeGeometryCategory } from "../utils/geometry";
+import { HEMISPHERE_DEGREES, shortestLongitudeExtent } from "../utils/antimeridian";
 import { loadDuckDB, type LoadedDuckDB } from "./duckdbLoader";
 import { ensureGpkgFeatureCount } from "./gpkgOgrContents";
 import { listGeoPackageLayers, readGeoPackage } from "./geopackage";
@@ -28,6 +29,7 @@ import {
   geoParquetCrsQuery,
   geometryTypesQuery,
   isBboxCoveringColumn,
+  longitudeIntervalsQuery,
   keepWkbReaderFor,
   layersMetaQuery,
   mvtTileQuery,
@@ -1254,6 +1256,7 @@ export class DuckDBEngine implements IEngine {
     if (coords.every((v) => Number.isFinite(v))) {
       bbox = coords as Bbox;
     }
+    const fitBbox = bbox ? await this._fitExtent(tableName, meta, bbox) : undefined;
 
     let geometryType: GeometryCategory = "unknown";
     const typesSql = meta.streamed
@@ -1267,7 +1270,36 @@ export class DuckDBEngine implements IEngine {
       );
     }
 
-    return { featureCount, bbox, geometryType };
+    return { featureCount, bbox, fitBbox, geometryType };
+  }
+
+  /**
+   * The extent to fit the camera to: the plain extent, or for data wider than
+   * a hemisphere, the short way round the antimeridian (see
+   * {@link longitudeIntervalsQuery}). Falls back to the plain extent when the
+   * interval query fails, since it only refines the framing.
+   */
+  private async _fitExtent(
+    tableName: string,
+    meta: TableMeta,
+    bbox: Bbox,
+  ): Promise<Bbox> {
+    if (bbox[2] - bbox[0] <= HEMISPHERE_DEGREES) return bbox;
+    try {
+      const result = await this._loaded.conn.query(
+        longitudeIntervalsQuery(
+          tableName,
+          meta.streamed ? meta.bboxColumn : undefined,
+        ),
+      );
+      const intervals = result
+        .toArray()
+        .map((row) => [Number(row.xmin), Number(row.xmax)] as [number, number]);
+      const lon = shortestLongitudeExtent(intervals);
+      return lon ? [lon[0], bbox[1], lon[1], bbox[3]] : bbox;
+    } catch {
+      return bbox;
+    }
   }
 
   private _requireTable(tableName: string): TableMeta {

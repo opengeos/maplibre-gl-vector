@@ -407,6 +407,69 @@ describe('LayerManager GeoJSON path', () => {
     expect(map.fitBounds.mock.calls[0][1].maxZoom).toBeCloseTo(0.4255, 3);
   });
 
+  it('fits a layer straddling the antimeridian the short way round', async () => {
+    const engine = createMockEngine();
+    const { manager, map } = createManager({}, engine);
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [179, 52] },
+          properties: {},
+        },
+        {
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [-179, 53] },
+          properties: {},
+        },
+      ],
+    };
+
+    const info = await manager.addData(fc, { id: 'aleutians' });
+
+    // The tile/source extent stays the plain min/max ...
+    expect(info.bbox).toEqual([-179, 52, 179, 53]);
+    // ... while the camera frames the two degrees across the antimeridian.
+    expect(info.fitBbox).toEqual([179, 52, 181, 53]);
+    expect(map.fitBounds.mock.calls[0][0]).toEqual([
+      [179, 52],
+      [181, 53],
+    ]);
+
+    map.fitBounds.mockClear();
+    manager.zoomToLayer('aleutians');
+    expect(map.fitBounds.mock.calls[0][0]).toEqual([
+      [179, 52],
+      [181, 53],
+    ]);
+  });
+
+  it('fits the plain extent on a flat map without world copies', async () => {
+    const engine = createMockEngine();
+    const { manager, map } = createManager({}, engine, {
+      getRenderWorldCopies: vi.fn(() => false),
+      getProjection: vi.fn(() => ({ type: 'mercator' })),
+    });
+    const fc = {
+      type: 'FeatureCollection' as const,
+      features: [179, -179].map((lon) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [lon, 52] },
+        properties: {},
+      })),
+    };
+
+    await manager.addData(fc, { id: 'aleutians' });
+
+    // Without world copies the two points sit at opposite edges of the only
+    // world drawn, so the wrapped extent would leave one of them out.
+    expect(map.fitBounds.mock.calls[0][0]).toEqual([
+      [-179, 52],
+      [179, 52],
+    ]);
+  });
+
   it('emits error and rethrows on invalid sources', async () => {
     const { manager, emit } = createManager();
     vi.stubGlobal(

@@ -7,6 +7,7 @@ import {
   createViewFromGeometrySql,
   detectGeometryColumn,
   isBboxCoveringColumn,
+  longitudeIntervalsQuery,
   mvtTileStreamQuery,
   sampledGeometryTypesQuery,
   createTableFromLonLatSql,
@@ -381,5 +382,27 @@ describe('mvtProbeQuery', () => {
     expect(sql).toContain('ST_AsMVT(');
     expect(sql).toContain('ST_AsMVTGeom(');
     expect(sql).toContain('ST_TileEnvelope(0, 0, 0)');
+  });
+});
+
+describe('longitudeIntervalsQuery', () => {
+  it('reads per-feature extents from the geometry and splits wide features into parts', () => {
+    const sql = longitudeIntervalsQuery('t1');
+    expect(sql).toContain('ST_XMin(geom) AS lo');
+    expect(sql).toContain('unnest(ST_Dump(geom)) AS part');
+    expect(sql).toContain('(ST_XMax(geom) - ST_XMin(geom)) > 180');
+    expect(sql).toContain('GROUP BY floor(lo)');
+  });
+
+  it('reads per-feature extents from a bbox covering column when given one', () => {
+    const sql = longitudeIntervalsQuery('t1', 'geometry_bbox');
+    expect(sql).toContain('"geometry_bbox".xmin AS lo');
+    expect(sql).toContain('("geometry_bbox".xmax - "geometry_bbox".xmin) > 180');
+    // Only the wide features decode their geometry; the narrow branch reads
+    // nothing but the covering column.
+    expect(sql).toContain('unnest(ST_Dump(geom))');
+    const narrow = sql.slice(0, sql.indexOf('UNION ALL'));
+    expect(narrow).not.toMatch(/\bgeom\b/);
+    expect(narrow).toContain('"geometry_bbox" IS NOT NULL');
   });
 });
