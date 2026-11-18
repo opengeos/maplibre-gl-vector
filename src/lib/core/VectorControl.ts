@@ -124,6 +124,8 @@ export class VectorControl implements IControl {
         try {
           await this._layerManager?.restoreLayersAfterStyleChange();
         } catch (error: unknown) {
+          // A restore overtaken by onRemove() is cancelled, not failed.
+          if (this._removed) return;
           const normalized = error instanceof Error ? error : new Error(String(error));
           this._emit('error', { error: normalized });
         }

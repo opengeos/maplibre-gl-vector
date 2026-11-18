@@ -196,6 +196,9 @@ export class LayerManager {
   // Multi-layer pickers currently on screen (or queued), so dispose() can
   // close them instead of orphaning a modal in the map container.
   private _openPickers = new Set<LayerPickerHandle>();
+  // Set by dispose(). Loads still in flight check it after each await so they
+  // stop before touching a map a re-initialized control may now own.
+  private _disposed = false;
 
   /**
    * Creates a layer manager.
@@ -205,7 +208,10 @@ export class LayerManager {
   constructor(deps: LayerManagerDeps) {
     this._map = deps.map;
     this._options = deps.options;
-    this._emit = deps.emit;
+    // dispose() promises no events; loads still in flight would emit after it.
+    this._emit = (type, extra) => {
+      if (!this._disposed) deps.emit(type, extra);
+    };
     this._getEngine = deps.getEngine;
   }
 
@@ -437,6 +443,7 @@ export class LayerManager {
     // Multi-layer containers (GeoPackage tables, KML folders, ...)
     // expand into one vector layer per source layer.
     const expanded = await this._maybeExpandLayers(source, options, detected, id);
+    this._throwIfDisposed();
     if (expanded) return expanded;
 
     const name = options.name ?? detected.name;
@@ -483,6 +490,12 @@ export class LayerManager {
       const error = err instanceof Error ? err : new Error(String(err));
       this._emit('error', { error });
       throw error;
+    }
+    if (this._disposed) {
+      // dispose() ran after the layer reached the map but before it was
+      // recorded, so dispose() could not see it; remove it here.
+      this._removeRecordFromMap(record);
+      this._throwIfDisposed();
     }
 
     this._records.set(id, record);
@@ -764,6 +777,9 @@ export class LayerManager {
     const sourceId = record.info.sourceId;
     this._detachPicker(record);
     removeLayersAndSource(this._map, record.info.layerIds, sourceId);
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
+    // Fire-and-forget caller: return rather than throw, dispose() cleaned up.
+    if (this._disposed) return;
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -771,7 +787,6 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(record.info.geometryType, record.info.style),
     );
-    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: record.info.geometryType,
@@ -954,11 +969,8 @@ export class LayerManager {
    * Called when the control is removed from the map.
    */
   dispose(): void {
-    for (const record of this._records.values()) {
-      this._detachPicker(record);
-      removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
-      if (record.providerKey) unregisterTileProvider(record.providerKey);
-    }
+    this._disposed = true;
+    for (const record of this._records.values()) this._removeRecordFromMap(record);
     this._records.clear();
     // A picker still on screen belongs to the map container, which outlives
     // the control; close it so no modal is left over the map.
@@ -969,6 +981,23 @@ export class LayerManager {
     if (this._tileStatusTimer) {
       clearTimeout(this._tileStatusTimer);
       this._tileStatusTimer = undefined;
+    }
+  }
+
+  private _removeRecordFromMap(record: LayerRecord): void {
+    this._detachPicker(record);
+    removeLayersAndSource(this._map, record.info.layerIds, record.info.sourceId);
+    if (record.providerKey) unregisterTileProvider(record.providerKey);
+  }
+
+  /**
+   * Aborts a load that dispose() overtook. Rejects with the cancellation
+   * error hosts already swallow for a dismissed layer picker: the load was
+   * cancelled, not failed.
+   */
+  private _throwIfDisposed(): void {
+    if (this._disposed) {
+      throw new VectorLayerSelectionCancelledError('Layer load cancelled: control disposed.');
     }
   }
 
@@ -1199,6 +1228,8 @@ export class LayerManager {
     // Only point layers use the cached collection (for a pointMode rebuild), so
     // don't pin a full copy of polygon/line data in the JS heap.
     record.geojson = summary.geometryType === 'point' ? collection : undefined;
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
+    this._throwIfDisposed();
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -1206,7 +1237,6 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(summary.geometryType, record.info.style),
     );
-    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: summary.geometryType,
@@ -1309,6 +1339,10 @@ export class LayerManager {
     await registerTileProvider(providerKey, (z, x, y, signal) =>
       this._trackTileActivity(engine.getTile(tableName, id, z, x, y, signal)),
     );
+    if (this._disposed) {
+      unregisterTileProvider(providerKey);
+      this._throwIfDisposed();
+    }
 
     record.info.renderMode = 'tiles';
     // Tiles never rebuild from a cached collection; drop any copy from a prior
@@ -1360,6 +1394,8 @@ export class LayerManager {
     record.info.renderMode = 'geojson';
     // Only point layers use the cached collection (for a pointMode rebuild).
     record.geojson = record.info.geometryType === 'point' ? collection : undefined;
+    const kmlIconImage = await prepareKmzIcons(this._map, collection);
+    this._throwIfDisposed();
     addGeoJSONSource(
       this._map,
       record.info.id,
@@ -1367,7 +1403,6 @@ export class LayerManager {
       this._options.attribution,
       clusterOptionsFor(record.info.geometryType, record.info.style),
     );
-    const kmlIconImage = await prepareKmzIcons(this._map, collection);
     record.info.layerIds = addGeometryLayers(this._map, {
       layerId: record.info.id,
       geometryType: record.info.geometryType,
