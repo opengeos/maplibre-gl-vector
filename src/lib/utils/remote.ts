@@ -9,7 +9,11 @@
  */
 
 /**
- * Largest remote file DuckDB-WASM can open.
+ * Largest remote file, in bytes, DuckDB-WASM can open (2 GiB - 1).
+ *
+ * Remote files above this size are rejected before the engine loads. Exported
+ * so hosts can apply the same limit (for example, to grey out a file in a
+ * remote browser) instead of mirroring the value.
  */
 export const MAX_REMOTE_FILE_BYTES = 2 ** 31 - 1;
 

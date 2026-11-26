@@ -240,6 +240,10 @@ export class VectorControl implements IControl {
   /**
    * Removes a layer added with {@link addData}.
    *
+   * Removes the layer's map layers and source and, for a layer ingested into
+   * DuckDB, drops its engine table too, so no copy of the data is left behind.
+   * Hosts can rely on this to hand a layer's data elsewhere and then remove it.
+   *
    * @param id - The layer id
    */
   removeLayer(id: string): void {
@@ -274,6 +278,11 @@ export class VectorControl implements IControl {
    * can persist the data of a layer loaded from a local file (which a saved
    * project cannot otherwise recreate). Returns null for an unknown id, or a
    * layer whose data is not held locally (e.g. a streamed GeoParquet).
+   *
+   * The collection is always complete (every feature of the layer, not only
+   * the features in view), including for a `renderMode: 'geojson'` layer
+   * ingested with `ingestMode: 'table'`, whose features are exported from its
+   * DuckDB table. Hosts can rely on this to take over a layer's data.
    *
    * @param id - The layer id.
    * @returns The features as a FeatureCollection, or null when unavailable.

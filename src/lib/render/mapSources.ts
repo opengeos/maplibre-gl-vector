@@ -7,6 +7,7 @@ import type { FeatureCollection } from 'geojson';
 import type { GeometryCategory, VectorLayerStyle } from '../core/types';
 import type { Bbox } from '../utils/geometry';
 import { buildLabelLayout, buildPaint, hasLabels, mapLayerId, pointModeOf } from './styleBuilder';
+import { KML_ICON_URL_PROPERTY } from '../formats/kmlIcon';
 
 /** Map layer roles created by the geometry-type loop (excludes heatmap/cluster). */
 type GeometrySuffix = 'fill' | 'extrusion' | 'outline' | 'line' | 'circle';
@@ -261,7 +262,7 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
         ...(sourceLayer ? { 'source-layer': sourceLayer } : {}),
         filter:
           suffix === 'circle' && kmlIconImage
-            ? ['all', SUFFIX_FILTERS.circle, ['!', ['has', '__geolibre_kml_icon_url']]]
+            ? ['all', SUFFIX_FILTERS.circle, ['!', ['has', KML_ICON_URL_PROPERTY]]]
             : SUFFIX_FILTERS[suffix],
         paint: buildPaint(suffix, style, opacity),
       }),
@@ -270,7 +271,7 @@ export function addGeometryLayers(map: MapLibreMap, options: AddLayersOptions): 
     ids.push(
       add(`${layerId}-kml-icon`, {
         type: 'symbol',
-        filter: ['all', POINT_FILTER, ['has', '__geolibre_kml_icon_url']],
+        filter: ['all', POINT_FILTER, ['has', KML_ICON_URL_PROPERTY]],
         layout: {
           ...layout,
           'icon-image': kmlIconImage,

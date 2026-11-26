@@ -317,9 +317,9 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 #### Data Methods
 
 - `addData(source, options?)` - Load a URL, `File`/`Blob`, or GeoJSON object; resolves with the layer's `VectorLayerInfo`
-- `removeLayer(id)` / `removeAll()` - Remove layers
+- `removeLayer(id)` / `removeAll()` - Remove layers (map layers, source, and the layer's DuckDB table when it was ingested into one)
 - `getLayers()` / `getLayer(id)` - Layer metadata
-- `getLayerGeoJSON(id)` - Materialize a layer's features as a GeoJSON `FeatureCollection` (from the cached collection, the DuckDB table, or the map source), so a host can persist a local-file layer's data; resolves `null` when the data is not held locally (e.g. a streamed GeoParquet)
+- `getLayerGeoJSON(id)` - Materialize a layer's features as a GeoJSON `FeatureCollection` (from the cached collection, the DuckDB table, or the map source), so a host can persist a local-file layer's data; resolves `null` when the data is not held locally (e.g. a streamed GeoParquet). The collection always holds every feature of the layer, including a `geojson`-mode layer ingested with `ingestMode: 'table'`
 - `setLayerVisibility(id, visible)` - Show/hide a layer
 - `zoomToLayer(id)` - Fit the map to a layer's extent
 - `setLayerStyle(id, style)` - Update colors, opacity, line width, circle radius
@@ -361,6 +361,11 @@ The base must mirror jsDelivr's layout for the pinned version (currently `1.31.0
 - `loading` - Progress messages (payload includes `message`)
 - `error` - Loading failures (payload includes `error`)
 - `collapse`, `expand`, `statechange` - Panel state
+
+#### Constants
+
+- `MAX_REMOTE_FILE_BYTES` - Largest remote file, in bytes, the control will open (2 GiB - 1, a DuckDB-WASM limit). Use it to apply the same limit in a host UI instead of copying the value
+- `KML_ICON_URL_PROPERTY` - Feature property holding a KML/KMZ placemark's resolved icon URL; points that have it are drawn by the control's icon layer
 
 ### VectorControlReact
 
