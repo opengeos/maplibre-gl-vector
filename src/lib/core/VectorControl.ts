@@ -240,9 +240,12 @@ export class VectorControl implements IControl {
   /**
    * Removes a layer added with {@link addData}.
    *
-   * Removes the layer's map layers and source and, for a layer ingested into
-   * DuckDB, drops its engine table too, so no copy of the data is left behind.
-   * Hosts can rely on this to hand a layer's data elsewhere and then remove it.
+   * Removes the layer's map layers and source synchronously and, for a layer
+   * ingested into DuckDB, also schedules a drop of its engine table, so the
+   * control keeps no copy of the data. The drop is asynchronous and its
+   * failure is not reported (a failed drop leaves the table until the engine
+   * closes). A host handing the data elsewhere should export it first, for
+   * example with {@link getLayerGeoJSON}, then remove the layer.
    *
    * @param id - The layer id
    */
