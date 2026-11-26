@@ -9,6 +9,8 @@ export {
 } from './lib/core/errors';
 export { DEFAULT_STYLE } from './lib/render/styleBuilder';
 export { DEFAULT_AUTO_THRESHOLD } from './lib/render/renderMode';
+export { MAX_REMOTE_FILE_BYTES } from './lib/utils/remote';
+export { KML_ICON_URL_PROPERTY } from './lib/formats/kmlIcon';
 
 // Type exports
 export type {

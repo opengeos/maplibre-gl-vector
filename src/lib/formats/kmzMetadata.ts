@@ -1,7 +1,8 @@
 import type { FeatureCollection, GeoJsonProperties } from 'geojson';
 import { unzipSync } from 'fflate';
+import { KML_ICON_URL_PROPERTY } from './kmlIcon';
 
-const ICON_URL = '__geolibre_kml_icon_url';
+const ICON_URL = KML_ICON_URL_PROPERTY;
 const ICON_SCALE = '__geolibre_kml_icon_scale';
 
 interface PlacemarkMetadata {
